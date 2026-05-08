@@ -1,0 +1,8 @@
+android/
+ios/
+twa/
+capacitor.config.ts
+capacitor.config.json
+*.aab
+*.apk
+android.keystore
