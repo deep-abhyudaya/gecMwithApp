@@ -18,10 +18,11 @@ import {
 import { CometCard } from "@/components/ui/comet-card";
 import BigCalendarContainer from "@/components/BigCalendarContainer";
 import AnnouncementsNotificationList from "@/components/AnnouncementsNotificationList";
+import { getUserAvatarUrl } from "@/actions/avatar-shop.actions";
 
 export const metadata = {
-  title: "My Profile | CampusOS",
-  description: "View and manage your CampusOS profile.",
+  title: "My Profile | gecX",
+  description: "View and manage your gecX profile.",
 };
 
 const ProfilePage = async () => {
@@ -102,8 +103,9 @@ const ProfilePage = async () => {
       ? `${profileData.name} ${profileData.surname || ""}`.trim()
       : clerkUser?.fullName ?? "Unknown";
 
-  const avatar =
-    profileData?.img || clerkUser?.imageUrl || "/noAvatar.png";
+  // Get equipped academic avatar
+  const equippedAvatar = await getUserAvatarUrl(userId || "", "academic");
+  const avatar = equippedAvatar || profileData?.img || clerkUser?.imageUrl || "/noAvatar.png";
 
   const infoRows: { icon: any; label: string; value: string }[] = [
     profileData?.email && {

@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import { createPublicTicket, getPublicTicketByCode, guestReplyToPublicTicket, togglePublicTicketMessageReaction, deletePublicTicketMessage } from "@/actions/public-ticket.actions";
 import { markPublicTicketMessagesAsRead } from "@/actions/notification.actions";
 import { CheckCircle, Search, Send, ChevronRight, Clock, AlertCircle, UserPlus, KeyRound, AtSign, HelpCircle, Copy, Check, SmilePlus, Smile, Trash2 } from "lucide-react";
-import EmojiPicker, { Theme } from "emoji-picker-react";
+import EmojiPicker from "emoji-picker-react";
 import { useTheme } from "next-themes";
 import RichMessageInput from "@/components/messages/RichMessageInput";
 import MarkdownMessage from "@/components/messages/MarkdownMessage";
@@ -311,7 +311,7 @@ export default function PublicTicketsPage() {
               <button
                 type="submit"
                 disabled={submitting || !subject.trim() || !description.trim()}
-                className="flex items-center gap-2 self-start bg-foreground text-background px-5 py-2.5 rounded-lg text-sm font-medium transition-opacity disabled:opacity-50 hover:opacity-90"
+                className="flex items-center gap-2 self-start bg-primary text-primary-foreground px-5 py-2.5 rounded-lg text-sm font-medium transition-opacity disabled:opacity-50 hover:opacity-90"
               >
                 {submitting ? <span className="animate-spin w-4 h-4 border-2 border-background/40 border-t-background rounded-full" /> : <Send className="w-4 h-4" />}
                 {submitting ? "Submitting..." : "Submit Ticket"}
@@ -334,7 +334,7 @@ export default function PublicTicketsPage() {
             <button
               type="submit"
               disabled={checking || !lookupCode.trim()}
-              className="flex items-center gap-2 bg-foreground text-background px-4 py-2.5 rounded-lg text-sm font-medium transition-opacity disabled:opacity-50"
+              className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2.5 rounded-lg text-sm font-medium transition-opacity disabled:opacity-50"
             >
               {checking ? <span className="animate-spin w-4 h-4 border-2 border-background/40 border-t-background rounded-full" /> : <Search className="w-4 h-4" />}
               {checking ? "Searching..." : "Look Up"}
@@ -400,7 +400,7 @@ export default function PublicTicketsPage() {
                           onDoubleClick={() => setReplyToMessage(msg)}
                           className={`group relative p-4 rounded-2xl text-[14px] leading-relaxed transition-all cursor-pointer ${isAdmin
                           ? "bg-muted/30 text-foreground rounded-tl-sm border border-border"
-                          : "bg-foreground text-background rounded-tr-sm shadow-md"
+                          : "bg-primary text-primary-foreground rounded-tr-sm shadow-md"
                           }`}
                         >
                           {msg.replyTo && (
@@ -444,7 +444,7 @@ export default function PublicTicketsPage() {
                                 onEmojiClick={(emojiData) => handleReaction(msg.id, emojiData.emoji)}
                                 width={280}
                                 height={350}
-                                theme={theme === 'dark' ? Theme.DARK : Theme.LIGHT}
+                                theme={theme === 'dark' ? "dark" : "light"}
                               />
                             </div>
                           )}
@@ -461,7 +461,7 @@ export default function PublicTicketsPage() {
                                   key={emoji}
                                   onClick={() => handleReaction(msg.id, emoji)}
                                   className={`flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[10px] border transition-all ${hasReacted
-                                    ? "bg-foreground text-background border-transparent"
+                                    ? "bg-primary text-primary-foreground border-transparent"
                                     : "bg-muted/30 border-border text-muted-foreground hover:bg-muted"
                                     }`}
                                 >
@@ -487,7 +487,7 @@ export default function PublicTicketsPage() {
                         onEmojiClick={(emojiData) => setEmojiToken(emojiData.emoji)}
                         width={300}
                         height={400}
-                        theme={theme === 'dark' ? Theme.DARK : Theme.LIGHT}
+                        theme={theme === 'dark' ? "dark" : "light"}
                       />
                     </div>
                   )}
@@ -541,3 +541,4 @@ export default function PublicTicketsPage() {
     </div>
   );
 }
+    

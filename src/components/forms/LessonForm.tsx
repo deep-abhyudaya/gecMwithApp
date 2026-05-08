@@ -199,7 +199,7 @@ const LessonForm = ({
       {error && (
         <span className="text-red-500 text-sm">Something went wrong!</span>
       )}
-      <button type="submit" disabled={loading} className="bg-foreground text-background p-2.5 rounded-md font-medium hover:opacity-90 disabled:opacity-60">
+      <button type="submit" disabled={loading} className="bg-primary text-primary-foreground p-2.5 rounded-md font-medium hover:opacity-90 disabled:opacity-60">
         {loading ? "Saving..." : type === "create" ? "Create" : "Update"}
       </button>
     </form>

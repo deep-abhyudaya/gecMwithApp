@@ -111,7 +111,7 @@ export default function TableDialog({
             <button
               type="submit"
               disabled={rows < 1 || cols < 1}
-              className="px-4 py-2 rounded-md bg-foreground text-background hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-4 py-2 rounded-md bg-primary text-primary-foreground hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Insert Table
             </button>

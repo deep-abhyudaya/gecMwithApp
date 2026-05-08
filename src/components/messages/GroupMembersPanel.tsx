@@ -2,8 +2,9 @@
 
 import { useState, useEffect } from "react";
 import { getGroupMembers, kickMember, leaveGroup, toggleMuteMember, addMemberToGroup } from "@/actions/group.actions";
+import { updateGroupBanner } from "@/actions/emoji-sticker.actions";
 import { verifyAccessCode } from "@/actions/message.actions";
-import { Users, Shield, LogOut, X, Copy, Check, MoreVertical, Trash2, MicOff, Mic, Key, PlusCircle } from "lucide-react";
+import { Users, Shield, LogOut, X, Copy, Check, MoreVertical, Trash2, MicOff, Mic, Key, PlusCircle, Image as ImageIcon } from "lucide-react";
 import { useRouter } from "next/navigation";
 import {
   Dialog,
@@ -42,6 +43,8 @@ export default function GroupMembersPanel({
   const [verifying, setVerifying] = useState(false);
   const [verifiedUser, setVerifiedUser] = useState<any | null>(null);
   const [addingUser, setAddingUser] = useState(false);
+  const [bannerUrl, setBannerUrl] = useState(group.bannerUrl || "");
+  const [updatingBanner, setUpdatingBanner] = useState(false);
   const router = useRouter();
 
   const me = members.find(m => m.userId === currentUserId);
@@ -146,6 +149,19 @@ export default function GroupMembersPanel({
     }
   }
 
+  async function handleUpdateBanner() {
+    setUpdatingBanner(true);
+    try {
+      await updateGroupBanner(group.id, bannerUrl);
+      alert("Group banner updated successfully!");
+      router.refresh();
+    } catch (e: any) {
+      alert(e.message || "Failed to update banner");
+    } finally {
+      setUpdatingBanner(false);
+    }
+  }
+
   return (
     <div className="flex flex-col h-full bg-transparent">
       <div className="flex-1 overflow-y-auto p-6 space-y-6 no-scrollbar">
@@ -213,6 +229,30 @@ export default function GroupMembersPanel({
             <PlusCircle className="w-4 h-4" />
             Add Member
           </button>
+        )}
+
+        {isOwner && (
+          <div className="bg-muted/50 rounded-xl px-4 py-3 border border-border/30 space-y-2">
+            <p className="text-[10px] text-muted-foreground font-semibold uppercase tracking-widest flex items-center gap-1.5">
+              <ImageIcon className="w-3 h-3" />
+              Group Banner URL
+            </p>
+            <div className="flex gap-2">
+              <input
+                value={bannerUrl}
+                onChange={(e) => setBannerUrl(e.target.value)}
+                placeholder="https://..."
+                className="w-full bg-background border border-border rounded-md px-2 py-1 text-sm outline-none focus:ring-1 focus:ring-primary"
+              />
+              <button
+                onClick={handleUpdateBanner}
+                disabled={updatingBanner || bannerUrl === (group.bannerUrl || "")}
+                className="px-3 py-1 rounded-md bg-primary text-primary-foreground text-xs font-medium hover:opacity-90 transition-colors disabled:opacity-50"
+              >
+                {updatingBanner ? "..." : "Save"}
+              </button>
+            </div>
+          </div>
         )}
         
         {/* Access Code - visible to all members */}

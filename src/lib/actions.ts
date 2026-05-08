@@ -15,9 +15,10 @@ import {
   ParentSchema,
   GradeSchema,
 } from "./formValidationSchemas";
-import prisma from "./prisma";
+import prisma from "@/lib/prisma";
 import { clerkClient } from "@clerk/nextjs/server";
 import { createNotificationsForUsers, getAllUserIdsByRole } from "@/lib/notifications";
+import { awardGecXForResult } from "../actions/gecx.actions";
 
 type CurrentState = { success: boolean; error: boolean };
 
@@ -1189,6 +1190,8 @@ export const createLesson = async (
     });
 
     revalidatePath("/list/lessons");
+    revalidatePath("/list/attendance");
+    revalidatePath("/admin");
     return { success: true, error: false };
   } catch (err) {
     return { success: false, error: true };
@@ -1230,6 +1233,8 @@ export const updateLesson = async (
     });
 
     revalidatePath("/list/lessons");
+    revalidatePath("/list/attendance");
+    revalidatePath("/admin");
     return { success: true, error: false };
   } catch (err) {
     return { success: false, error: true };
@@ -1274,6 +1279,8 @@ export const deleteLesson = async (
       excludeUserId: userId || null,
     });
     revalidatePath("/list/lessons");
+    revalidatePath("/list/attendance");
+    revalidatePath("/admin");
     return { success: true, error: false };
   } catch (err) {
     return { success: false, error: true };
@@ -1321,6 +1328,7 @@ export const createAssignment = async (
     }
 
     revalidatePath("/list/assignments");
+    revalidatePath("/admin");
     return { success: true, error: false };
   } catch (err) {
     return { success: false, error: true };
@@ -1361,6 +1369,7 @@ export const updateAssignment = async (
       excludeUserId: userId || null,
     });
     revalidatePath("/list/assignments");
+    revalidatePath("/admin");
     return { success: true, error: false };
   } catch (err) {
     return { success: false, error: true };
@@ -1404,6 +1413,7 @@ export const deleteAssignment = async (
       excludeUserId: userId || null,
     });
     revalidatePath("/list/assignments");
+    revalidatePath("/admin");
     return { success: true, error: false };
   } catch (err) {
     return { success: false, error: true };
@@ -1469,7 +1479,16 @@ export const createResult = async (
       excludeUserId: userId || null,
     });
 
+    // Award gecX for result (async, don't block result saving)
+    try {
+      const examOrAssignment = data.examId ? "exam" : "assignment";
+      await awardGecXForResult(data.studentId, result.score, examOrAssignment);
+    } catch (error) {
+      console.error("Failed to award gecX for result:", error);
+    }
+
     revalidatePath("/list/results");
+    revalidatePath("/admin");
     return { success: true, error: false };
   } catch (err) {
     return { success: false, error: true };
@@ -1509,6 +1528,7 @@ export const updateResult = async (
       excludeUserId: userId || null,
     });
     revalidatePath("/list/results");
+    revalidatePath("/admin");
     return { success: true, error: false };
   } catch (err) {
     return { success: false, error: true };
@@ -1555,6 +1575,7 @@ export const deleteResult = async (
       excludeUserId: userId || null,
     });
     revalidatePath("/list/results");
+    revalidatePath("/admin");
     return { success: true, error: false };
   } catch (err) {
     return { success: false, error: true };

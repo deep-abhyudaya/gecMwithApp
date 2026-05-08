@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.de3pabh4.gecx",
+      "sha256_cert_fingerprints": [
+        "2F:41:D2:1F:E1:05:8E:7B:6D:43:FF:7B:75:BD:C6:2D:AC:16:3C:A0:32:F5:5C:71:4A:87:EA:6A:62:EE:2B:A4"
+      ]
+    }
+  }
+]

@@ -1,7 +1,10 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { useUser } from "@clerk/nextjs";
+import { useAbly, type ChatEvent } from "@/hooks/useAbly";
+import Link from "next/link";
 import {
   sendDirectMessage,
   toggleDMReaction,
@@ -16,16 +19,23 @@ import {
   deleteDirectMessage,
 } from "@/actions/message.actions";
 import { markDirectMessagesAsRead, markGroupMessagesAsRead } from "@/actions/notification.actions";
-import { PlusCircle, User as UserIcon, X, Lock, CheckCircle, Unlock, Trash2, SmilePlus, Smile, Hash, Users, Inbox, Ban } from "lucide-react";
+import { getAllUserServerEmojisAndStickers } from "@/actions/emoji-sticker.actions";
+import { getKarmaTierColor } from "@/lib/karma-tiers";
+import { PlusCircle, User as UserIcon, X, Lock, CheckCircle, Unlock, Trash2, SmilePlus, Smile, Hash, Users, Inbox, Ban, ExternalLink } from "lucide-react";
 import CreateGroupModal from "./CreateGroupModal";
 import JoinGroupModal from "./JoinGroupModal";
 import GroupChatView from "./GroupChatView";
 import PollMessage from "./PollMessage";
-import { defaultIcons } from "./SlashCommandMenu";
 import RichMessageInput from "./RichMessageInput";
 import MarkdownMessage from "./MarkdownMessage";
-import EmojiPicker, { Theme } from "emoji-picker-react";
+import EmojiReaction from "./EmojiReaction";
+import { buildEmojiMap } from "./EmojiRenderer";
+import { ChatMessageHeader } from "./ChatMessageHeader";
+import { defaultIcons } from "./SlashCommandMenu";
+import EmojiPicker from "./LazyEmojiPicker";
 import { useTheme } from "next-themes";
+import { cn } from "@/lib/utils";
+import { UserCardTrigger } from "@/components/user";
 import {
   Dialog,
   DialogContent,
@@ -52,6 +62,7 @@ interface DirectMessageClientProps {
   selectedData: any | null;
   currentUserId: string;
   defaultLayout?: number[];
+  currentUserProfile?: any;
 }
 
 export default function DirectMessageClient({
@@ -60,17 +71,18 @@ export default function DirectMessageClient({
   selectedData,
   currentUserId,
   defaultLayout,
+  currentUserProfile,
 }: DirectMessageClientProps) {
   const router = useRouter();
-  const searchParams = useSearchParams();
   const { theme } = useTheme();
+  const { user } = useUser();
+  const currentSearchParams = useSearchParams();
   const [isCreating, setIsCreating] = useState(false);
   const [accessCode, setAccessCode] = useState("");
   const [verifying, setVerifying] = useState(false);
   const [error, setError] = useState("");
   const [foundUser, setFoundUser] = useState<any>(null);
 
-  const [emojiToken, setEmojiToken] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
   const [isNearBottom, setIsNearBottom] = useState(true);
@@ -81,8 +93,7 @@ export default function DirectMessageClient({
   const [showUnblockDialog, setShowUnblockDialog] = useState(false);
   const [isUnblocking, setIsUnblocking] = useState(false);
   const [reactionMessageId, setReactionMessageId] = useState<number | null>(null);
-  const [showInputEmoji, setShowInputEmoji] = useState(false);
-  const inputEmojiRef = useRef<HTMLDivElement>(null);
+  const [reactionTab, setReactionTab] = useState<'unicode' | 'custom'>('unicode');
   const reactionEmojiRef = useRef<HTMLDivElement>(null);
   const [showPollDialog, setShowPollDialog] = useState(false);
   const [pollQuestion, setPollQuestion] = useState("");
@@ -91,6 +102,16 @@ export default function DirectMessageClient({
   const [replyToMessage, setReplyToMessage] = useState<any | null>(null);
 
   const [localMessages, setLocalMessages] = useState<any[]>(selectedData?.messages ?? []);
+  const [serverEmojis, setServerEmojis] = useState<any[]>([]);
+  const [serverStickers, setServerStickers] = useState<any[]>([]);
+
+  const currentConvId = currentSearchParams.get("convId");
+  const currentType = currentSearchParams.get("type");
+  const showConversationSkeleton = Boolean(
+    currentConvId &&
+    currentType &&
+    (!selectedData || String(selectedData.id) !== currentConvId || (selectedData.isGroup ? "group" : "direct") !== currentType)
+  );
   // Track the timestamp of the most recent message we know about (for poll "since" param)
   const lastMsgTimeRef = useRef<string>(
     selectedData?.messages?.length
@@ -100,9 +121,6 @@ export default function DirectMessageClient({
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
-      if (inputEmojiRef.current && !inputEmojiRef.current.contains(event.target as Node)) {
-        setShowInputEmoji(false);
-      }
       if (reactionEmojiRef.current && !reactionEmojiRef.current.contains(event.target as Node)) {
         setReactionMessageId(null);
       }
@@ -110,6 +128,19 @@ export default function DirectMessageClient({
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
+
+  // Fetch server emojis/stickers once on mount
+  useEffect(() => {
+    getAllUserServerEmojisAndStickers()
+      .then(({ emojis, stickers }) => {
+        setServerEmojis(emojis);
+        setServerStickers(stickers);
+      })
+      .catch(() => {});
+  }, []);
+
+  // Memoize emoji map
+  const emojiMap = useMemo(() => buildEmojiMap(serverEmojis, []), [serverEmojis]);
 
   const updateIsNearBottom = useCallback(() => {
     const el = scrollerRef.current;
@@ -156,9 +187,52 @@ export default function DirectMessageClient({
     }
   }, [selectedData?.id, selectedData?.isGroup]);
 
-  // Poll for new messages from the other person every 3 seconds
+  // Ably realtime integration for DMs
+  const ablyChannelName = useMemo(() => {
+    if (!selectedData || selectedData.isGroup) return null;
+    return `dm:${selectedData.id}`;
+  }, [selectedData?.id, selectedData?.isGroup]);
+
+  const { isConnected, subscribe } = useAbly(ablyChannelName);
+
   useEffect(() => {
-    if (!selectedData || selectedData.isGroup) return;
+    if (!ablyChannelName) return;
+    const unsubscribe = subscribe((event: ChatEvent) => {
+      if (event.type === "message:new") {
+        const msg = event.message;
+        setLocalMessages((prev) => {
+          const exists = prev.some((m: any) => String(m.id) === String(msg.id));
+          if (exists) return prev;
+          lastMsgTimeRef.current = new Date(msg.createdAt).toISOString();
+          return [...prev, msg];
+        });
+      } else if (event.type === "message:delete") {
+        setLocalMessages((prev) => prev.filter((m: any) => String(m.id) !== String(event.messageId)));
+      } else if (event.type === "reaction:add") {
+        setLocalMessages((prev) =>
+          prev.map((m: any) => {
+            if (String(m.id) !== String(event.messageId)) return m;
+            const reactions = m.reactions || [];
+            const exists = reactions.some((r: any) => r.userId === event.userId && r.emoji === event.emoji);
+            if (exists) return m;
+            return { ...m, reactions: [...reactions, { id: -Date.now(), messageId: event.messageId, userId: event.userId, emoji: event.emoji }] };
+          })
+        );
+      } else if (event.type === "reaction:remove") {
+        setLocalMessages((prev) =>
+          prev.map((m: any) => {
+            if (String(m.id) !== String(event.messageId)) return m;
+            return { ...m, reactions: (m.reactions || []).filter((r: any) => !(r.userId === event.userId && r.emoji === event.emoji)) };
+          })
+        );
+      }
+    });
+    return unsubscribe;
+  }, [ablyChannelName, subscribe]);
+
+  // Poll for new messages from the other person every 3 seconds (fallback when Ably is not connected)
+  useEffect(() => {
+    if (!selectedData || selectedData.isGroup || isConnected) return;
     let cancelled = false;
 
     const poll = async () => {
@@ -188,7 +262,7 @@ export default function DirectMessageClient({
       cancelled = true;
       clearInterval(interval);
     };
-  }, [selectedData?.id, selectedData?.isGroup]);
+  }, [selectedData?.id, selectedData?.isGroup, isConnected]);
 
   const handleConversationClick = (id: number) => {
     router.push(`/messages?convId=${id}&type=direct`);
@@ -391,7 +465,7 @@ export default function DirectMessageClient({
           defaultSize={defaultLayout?.[0] ?? 30}
           minSize={20}
           maxSize={45}
-          className={`flex-col ${shadowBorder} z-10 bg-[#fafafa] dark:bg-[#111113] ${selectedData ? 'hidden md:flex' : 'flex'} h-full`}
+          className={`flex-col ${shadowBorder} z-10 bg-background ${selectedData ? 'hidden md:flex' : 'flex'} h-full`}
         >
           <div className="p-4 border-b border-border bg-background shrink-0">
             <div className="flex justify-between items-center mb-4">
@@ -421,35 +495,50 @@ export default function DirectMessageClient({
               {conversations.length === 0 && (
                 <p className="text-[11px] text-muted-foreground px-2 py-1 ">No DMs yet.</p>
               )}
-              {conversations.map((c) => (
+              {conversations.map((c) => {
+                const hasNameplate = !!c.otherUser.equippedNameplate;
+                return (
                 <div
                   key={c.id}
                   onClick={() => handleConversationClick(c.id)}
                   className={`p-3 rounded-md cursor-pointer transition-colors ${selectedData?.id === c.id && !selectedData?.isGroup
                     ? "bg-background shadow-[0px_0px_0px_1px_rgba(0,0,0,0.08)] dark:shadow-[0px_0px_0px_1px_rgba(255,255,255,0.1)]"
-                    : "hover:bg-accent hover:text-accent-foreground"
+                    : hasNameplate ? "opacity-90 hover:opacity-100" : "hover:bg-accent hover:text-accent-foreground"
                     }`}
+                  style={hasNameplate ? { background: c.otherUser.equippedNameplate, color: 'white', textShadow: '0 1px 2px rgba(0,0,0,0.5)' } : {}}
                 >
                   <div className="flex justify-between items-start mb-1">
-                    <h3 className="font-medium text-[13px] text-foreground line-clamp-1 flex-1 pr-2 flex items-center">
-                      <span className="truncate">{c.otherUser.username}</span>
+                    <h3 className={cn("font-medium text-[13px] line-clamp-1 flex-1 pr-2 flex items-center", hasNameplate ? "text-white" : "text-foreground")}>
+                      <UserCardTrigger userId={c.otherUser.id}>
+                        <span className="truncate cursor-pointer hover:opacity-80" style={!hasNameplate ? { color: c.otherUser.equippedUsernameColor || getKarmaTierColor(c.otherUser.karmaPoints) || undefined } : {}}>
+                          {c.otherUser.username}
+                        </span>
+                      </UserCardTrigger>
+                      <Link
+                        href={`/${c.otherUser.username}`}
+                        onClick={(e) => e.stopPropagation()}
+                        className={cn("ml-1.5 p-0.5 rounded transition-colors", hasNameplate ? "text-white/80 hover:text-white hover:bg-white/10" : "hover:bg-muted text-muted-foreground hover:text-primary")}
+                        title="View profile"
+                      >
+                        <ExternalLink className="size-3" />
+                      </Link>
                       {c.unreadCount > 0 && (!selectedData || selectedData.id !== c.id || selectedData.isGroup) && (
-                        <span className="ml-2 inline-flex items-center justify-center w-[18px] h-[18px] text-[10px] font-bold text-white bg-blue-500 rounded-full shrink-0">
+                        <span className={cn("ml-2 inline-flex items-center justify-center w-[18px] h-[18px] text-[10px] font-bold rounded-full shrink-0", hasNameplate ? "bg-white text-black text-shadow-none" : "text-white bg-blue-500")} style={hasNameplate ? { textShadow: 'none' } : {}}>
                           {c.unreadCount}
                         </span>
                       )}
                     </h3>
                     {c.isClosed && (
-                      <span className="text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground whitespace-nowrap">
+                      <span className={cn("text-[9px] font-medium px-1.5 py-0.5 rounded-full whitespace-nowrap", hasNameplate ? "bg-white/20 text-white" : "bg-muted text-muted-foreground")}>
                         Closed
                       </span>
                     )}
                   </div>
-                  <p className="text-[11px] text-muted-foreground line-clamp-1">
+                  <p className={cn("text-[11px] line-clamp-1", hasNameplate ? "text-white/90" : "text-muted-foreground")}>
                     {c.messages[0]?.content || "No messages yet"}
                   </p>
                 </div>
-              ))}
+              )})}
             </div>
 
             {/* Groups Section */}
@@ -497,9 +586,19 @@ export default function DirectMessageClient({
           defaultSize={defaultLayout?.[1] ?? 70}
           className={`flex-1 flex-col bg-background h-full relative ${selectedData ? 'flex' : 'hidden md:flex'}`}
         >
-          {selectedData ? (
+          {showConversationSkeleton ? (
+            <div className="flex-1 flex flex-col h-full animate-pulse bg-background">
+              <div className="h-20 border-b border-border bg-muted/20" />
+              <div className="flex-1 p-6 space-y-4">
+                {Array.from({ length: 6 }).map((_, index) => (
+                  <div key={index} className="h-14 rounded-2xl bg-muted" />
+                ))}
+              </div>
+              <div className="h-24 border-t border-border bg-muted/20 p-4" />
+            </div>
+          ) : selectedData ? (
             selectedData.isGroup ? (
-              <GroupChatView group={selectedData} currentUserId={currentUserId} />
+              <GroupChatView group={selectedData} currentUserId={currentUserId} currentUserProfile={currentUserProfile} />
             ) : (
               <div className="flex flex-col h-full">
                 {/* HEADER */}
@@ -512,12 +611,20 @@ export default function DirectMessageClient({
                       <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6" /></svg>
                     </button>
                     <div>
-                      <h2 className="text-[18px] md:text-[20px] font-medium tracking-[-0.32px] text-foreground">
-                        {selectedData.otherUser.name} {selectedData.otherUser.surname}
-                      </h2>
-                      <p className="text-[11px] md:text-[12px] text-muted-foreground mt-0.5  tracking-wider">
-                        @{selectedData.otherUser.username} <b className="ml-1 text-blue-500">  {selectedData.otherUser.role.toUpperCase()} </b>
-                      </p>
+                      <UserCardTrigger userId={selectedData.otherUser.id}>
+                        <div className="group cursor-pointer">
+                          <h2 
+                            className="text-[18px] md:text-[20px] font-medium tracking-[-0.32px] transition-colors hover:opacity-80"
+                            style={{ color: selectedData.otherUser.equippedUsernameColor || 'inherit' }}
+                          >
+                            {selectedData.otherUser.name} {selectedData.otherUser.surname}
+                          </h2>
+                          <p className="text-[11px] md:text-[12px] mt-0.5 tracking-wider transition-colors text-muted-foreground">
+                            @<span style={{ color: selectedData.otherUser.equippedUsernameColor || getKarmaTierColor(selectedData.otherUser.karmaPoints) || undefined }}>{selectedData.otherUser.username}</span>
+                            <b className="ml-1" style={{ color: selectedData.otherUser.equippedUsernameColor || '#3b82f6' }}> {selectedData.otherUser.role.toUpperCase()} </b>
+                          </p>
+                        </div>
+                      </UserCardTrigger>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
@@ -613,7 +720,7 @@ export default function DirectMessageClient({
                       <button
                         onClick={handleUnblockUser}
                         disabled={isUnblocking}
-                        className="px-4 py-2 rounded-md bg-foreground text-background text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50"
+                        className="px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50"
                       >
                         {isUnblocking ? "Unblocking..." : "Unblock user"}
                       </button>
@@ -651,7 +758,7 @@ export default function DirectMessageClient({
                 <div
                   ref={scrollerRef}
                   onScroll={updateIsNearBottom}
-                  className="flex-1 overflow-y-auto p-6 space-y-6 bg-[#fafafa] dark:bg-[#111113] flex flex-col no-scrollbar"
+                  className="flex-1 overflow-y-auto p-6 space-y-6 bg-background flex flex-col no-scrollbar"
                 >
                   {(selectedData.otherUser?.isBlockedByMe || selectedData.otherUser?.hasBlockedMe) && (
                     <div className="rounded-lg border border-border bg-background p-4 text-[13px] text-muted-foreground">
@@ -669,25 +776,160 @@ export default function DirectMessageClient({
                     }, {});
 
                     return (
-                      <div key={msg.id} className={`flex gap-3 ${isMe ? "flex-row-reverse self-end" : "flex-row self-start"} w-full max-w-[80%]`}>
-                        {!isMe && (
-                          <div className="size-8 rounded-full bg-muted flex items-center justify-center shrink-0">
-                            <UserIcon className="size-4 text-muted-foreground" />
+                      <div
+                        key={msg.id}
+                        className="group relative flex w-full hover:bg-muted/30 transition-colors px-4 py-2"
+                        onDoubleClick={() => setReplyToMessage(msg)}
+                      >
+                        <div className="absolute right-4 -top-3 hidden group-hover:flex items-center p-0.5 rounded-md bg-card shadow-sm border border-border/50 z-10">
+                          {AVAILABLE_EMOJIS.map((emoji) => (
+                            <button
+                              key={emoji}
+                              onClick={() => handleReaction(msg.id, emoji)}
+                              className="w-7 h-7 flex items-center justify-center text-[14px] hover:bg-muted rounded-sm transition-colors active:scale-90"
+                            >
+                              {emoji}
+                            </button>
+                          ))}
+                          <div className="w-[1px] h-4 bg-border mx-1" />
+                          <button
+                            onClick={() => setReactionMessageId(reactionMessageId === msg.id ? null : msg.id)}
+                            className="w-7 h-7 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted rounded-sm transition-colors"
+                          >
+                            <SmilePlus className="w-4 h-4" />
+                          </button>
+                          {msg.senderId === currentUserId && (
+                            <button
+                              onClick={() => handleDeleteMessage(msg.id)}
+                              className="w-7 h-7 flex items-center justify-center text-red-500 hover:bg-red-50 rounded-sm transition-colors"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
+
+                        {reactionMessageId === msg.id && (
+                          <div ref={reactionEmojiRef} className="absolute z-50 right-4 top-8 shadow-xl">
+                            <div className="bg-background rounded-lg border border-border shadow-2xl overflow-hidden" style={{ width: 320 }}>
+                              {/* Tabs */}
+                              <div className="flex border-b border-border">
+                                <button
+                                  onClick={() => setReactionTab('unicode')}
+                                  className={`flex-1 py-2 text-xs font-medium transition-colors ${
+                                    reactionTab === 'unicode' ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent/50'
+                                  }`}
+                                >
+                                  Standard
+                                </button>
+                                {serverEmojis.length > 0 && (
+                                  <button
+                                    onClick={() => setReactionTab('custom')}
+                                    className={`flex-1 py-2 text-xs font-medium transition-colors ${
+                                      reactionTab === 'custom' ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent/50'
+                                    }`}
+                                  >
+                                    Server ({serverEmojis.length})
+                                  </button>
+                                )}
+                              </div>
+
+                              {/* Unicode Emojis */}
+                              {reactionTab === 'unicode' && (
+                                <EmojiPicker
+                                  onEmojiClick={(emojiData) => handleReaction(msg.id, emojiData.emoji)}
+                                  width={320}
+                                  height={300}
+                                  theme={theme === 'dark' ? "dark" : "light"}
+                                />
+                              )}
+
+                              {/* Custom Server Emojis */}
+                              {reactionTab === 'custom' && (
+                                <div className="p-3 h-[300px] overflow-y-auto">
+                                  {serverEmojis.length === 0 ? (
+                                    <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
+                                      <Smile className="w-8 h-8 mb-2 opacity-40" />
+                                      <p className="text-xs text-center">No custom emojis</p>
+                                    </div>
+                                  ) : (
+                                    <div className="grid grid-cols-6 gap-1">
+                                      {serverEmojis.map((emoji) => (
+                                        <button
+                                          key={emoji.id}
+                                          onClick={() => handleReaction(msg.id, `:${emoji.name}:`)}
+                                          className="aspect-square rounded hover:bg-accent p-1 transition-colors flex items-center justify-center"
+                                          title={emoji.name}
+                                        >
+                                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                                          <img
+                                            src={emoji.imageUrl}
+                                            alt={emoji.name}
+                                            className="w-6 h-6 object-contain"
+                                          />
+                                        </button>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
                           </div>
                         )}
-                        <div className={`flex-1 flex flex-col ${isMe ? "items-end" : "items-start"} min-w-0`}>
-                          <div
-                            onDoubleClick={() => setReplyToMessage(msg)}
-                            className={`group relative p-3.5 rounded-xl text-[14px] cursor-pointer ${shadowCard} ${isMe
-                            ? "bg-foreground text-background rounded-tr-sm"
-                            : "bg-card text-card-foreground rounded-tl-sm"
-                            }`}
-                          >
-                            {msg.replyTo && (
-                              <div className="mb-2 px-2 py-1 rounded-md border border-border/40 bg-background/40 text-[11px] text-muted-foreground">
-                                Replying to: {msg.replyTo.content}
-                              </div>
-                            )}
+
+                        <ChatMessageHeader
+                          username={isMe ? (user?.username || currentUserId) : (selectedData.otherUser?.username || msg.senderId)}
+                          userId={isMe ? currentUserId : selectedData.otherUser?.id}
+                          displayName={isMe ? `${user?.firstName} ${user?.lastName}`.trim() : `${selectedData.otherUser?.name} ${selectedData.otherUser?.surname}`.trim()}
+                          avatar={isMe ? user?.imageUrl : selectedData.otherUser?.avatar}
+                          customAvatar={isMe ? currentUserProfile?.customAvatar : selectedData.otherUser?.customAvatar}
+                          equippedColor={isMe ? currentUserProfile?.equippedUsernameColor : selectedData.otherUser?.equippedUsernameColor}
+                          equippedNameplate={isMe ? currentUserProfile?.equippedNameplate : selectedData.otherUser?.equippedNameplate}
+                          karmaPoints={isMe ? 0 : (selectedData.otherUser?.karmaPoints || 0)}
+                          roleBadge={isMe ? null : (selectedData.otherUser?.role && selectedData.otherUser?.role !== "student" ? selectedData.otherUser?.role : null)}
+                          timestamp={new Date(msg.createdAt).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}
+                        >
+                          <div className="flex flex-col gap-1 w-full mt-1">
+                            {msg.replyTo && (() => {
+                              const isReplyFromMe = msg.replyTo.senderId === currentUserId;
+                              const replyUsername = isReplyFromMe
+                                ? (user?.username ?? "you")
+                                : (selectedData.otherUser?.username ?? "?");
+                              const replyAvatar = isReplyFromMe
+                                ? user?.imageUrl
+                                : selectedData.otherUser?.avatar;
+                              return (
+                                <div className="flex items-center gap-1 mb-1 min-w-0">
+                                  {/* Discord curved connector */}
+                                  <div className="shrink-0 flex items-center" style={{ width: 32, marginLeft: -2 }}>
+                                    <svg width="32" height="18" viewBox="0 0 32 18" fill="none" aria-hidden>
+                                      <path
+                                        d="M4 0 C4 9 4 14 28 14"
+                                        stroke="currentColor"
+                                        strokeWidth="1.5"
+                                        strokeLinecap="round"
+                                        fill="none"
+                                        className="text-muted-foreground/40"
+                                      />
+                                    </svg>
+                                  </div>
+                                  {/* Small avatar */}
+                                  <div className="relative w-4 h-4 rounded-full overflow-hidden bg-muted shrink-0">
+                                    {replyAvatar
+                                      ? <img src={replyAvatar} alt={replyUsername} className="w-full h-full object-cover" />
+                                      : <span className="absolute inset-0 flex items-center justify-center text-[7px] font-bold text-muted-foreground">{replyUsername[0]?.toUpperCase()}</span>
+                                    }
+                                  </div>
+                                  {/* Username */}
+                                  <span className="text-[11px] font-semibold text-foreground/60 shrink-0 hover:text-foreground/90 cursor-pointer">
+                                    @{replyUsername}
+                                  </span>
+                                  {/* Content preview */}
+                                  <span className="text-[11px] text-muted-foreground truncate max-w-[240px] cursor-pointer hover:text-foreground/80">
+                                    {msg.replyTo.content}
+                                  </span>
+                                </div>
+                              );
+                            })()}
                             {msg.poll ? (
                               <PollMessage
                                 poll={msg.poll}
@@ -701,82 +943,44 @@ export default function DirectMessageClient({
                             ) : msg.messageType === "COMMAND" && msg.commandUrl ? (
                               <a
                                 href={msg.commandUrl}
-                                className="block rounded-md border border-blue-500/30 bg-blue-500/10 px-3 py-2 text-[13px] text-blue-600 dark:text-blue-300 hover:bg-blue-500/15"
+                                className="inline-block rounded-md border border-blue-500/30 bg-blue-500/10 px-3 py-2 text-[13px] text-blue-600 dark:text-blue-300 hover:bg-blue-500/15"
                               >
                                 {msg.commandLabel || msg.content}
                               </a>
                             ) : (
-                              <MarkdownMessage content={msg.content} />
+                              <MarkdownMessage 
+                                content={msg.content} 
+                                emojiMap={emojiMap}
+                                stickerUrls={serverStickers.map(s => s.imageUrl)}
+                              />
                             )}
 
-                            {/* Reactions Picker */}
-                            {!selectedData.isClosed && (
-                              <div className={`absolute top-[-16px] ${isMe ? "right-0" : "left-0"} flex items-center p-1 rounded-full bg-card shadow-sm border border-border opacity-0 group-hover:opacity-100 transition-opacity z-10 gap-1`}>
-                                {AVAILABLE_EMOJIS.map(emoji => (
-                                  <button
-                                    key={emoji}
-                                    onClick={() => handleReaction(msg.id, emoji)}
-                                    className="w-7 h-7 flex items-center justify-center text-[14px] hover:bg-muted rounded-full transition-colors"
-                                  >
-                                    {emoji}
-                                  </button>
-                                ))}
-                                <div className="w-[1px] h-4 bg-border mx-0.5" />
-                                <button
-                                  onClick={() => setReactionMessageId(reactionMessageId === msg.id ? null : msg.id)}
-                                  className="w-7 h-7 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted rounded-full transition-colors"
-                                >
-                                  <SmilePlus className="size-4" />
-                                </button>
-                                {msg.senderId === currentUserId && (
-                                  <button
-                                    onClick={() => handleDeleteMessage(msg.id)}
-                                    className="w-7 h-7 flex items-center justify-center text-red-500 hover:bg-red-50 rounded-full transition-colors"
-                                  >
-                                    <Trash2 className="size-4" />
-                                  </button>
-                                )}
-                              </div>
-                            )}
-                            {reactionMessageId === msg.id && (
-                              <div ref={reactionEmojiRef} className={`absolute z-50 ${isMe ? "right-0" : "left-0"} top-6`}>
-                                <EmojiPicker
-                                  onEmojiClick={(emojiData) => handleReaction(msg.id, emojiData.emoji)}
-                                  width={280}
-                                  height={350}
-                                  theme={theme === 'dark' ? Theme.DARK : Theme.LIGHT}
-                                />
-                              </div>
-                            )}
-                          </div>
-
-                          {/* Display Reactions */}
-                          {Object.keys(reactionsByEmoji).length > 0 && (
-                            <div className={`flex flex-wrap gap-1 mt-1 ${isMe ? "justify-end" : "justify-start"}`}>
-                              {Object.entries(reactionsByEmoji).map(([emoji, reacts]: [string, any]) => {
-                                const hasReacted = reacts.some((r: any) => r.userId === currentUserId);
-                                return (
-                                  <button
-                                    key={emoji}
-                                    onClick={() => handleReaction(msg.id, emoji)}
-                                    className={`flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[11px] border ${hasReacted
-                                      ? "bg-blue-500/10 border-blue-500/30 text-blue-500"
-                                      : "bg-card border-border text-muted-foreground hover:bg-muted"
+                            {/* Display Reactions */}
+                            {Object.keys(reactionsByEmoji).length > 0 && (
+                              <div className="flex flex-wrap gap-1 mt-1.5">
+                                {Object.entries(reactionsByEmoji).map(([emoji, reacts]: [string, any]) => {
+                                  const hasReacted = reacts.some((r: any) => r.userId === currentUserId);
+                                  return (
+                                    <button
+                                      key={emoji}
+                                      onClick={() => handleReaction(msg.id, emoji)}
+                                      className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs border transition-all duration-200 ${
+                                        hasReacted
+                                          ? "bg-blue-500/10 border-blue-500/30 text-blue-500"
+                                          : "bg-background border-border text-muted-foreground hover:bg-muted"
                                       }`}
-                                  >
-                                    <span>{emoji}</span>
-                                    <span className="font-medium">{reacts.length}</span>
-                                  </button>
-                                );
-                              })}
-                            </div>
-                          )}
-
-                          <div className="mt-1.5 text-[11px] text-muted-foreground font-mono px-1">
-                            {new Date(msg.createdAt).toLocaleTimeString("en-US", { hour: '2-digit', minute: '2-digit' })}
+                                    >
+                                      <EmojiReaction emoji={emoji} emojiMap={emojiMap} />
+                                      <span className="font-semibold">{reacts.length}</span>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            )}
                           </div>
-                        </div>
+                        </ChatMessageHeader>
                       </div>
+
                     );
                   })}
                   <div ref={messagesEndRef} />
@@ -784,43 +988,30 @@ export default function DirectMessageClient({
 
                 {/* INPUT */}
                 {!selectedData.isClosed && !selectedData.otherUser?.isBlockedByMe && !selectedData.otherUser?.hasBlockedMe ? (
-                  <div className="p-4 bg-background border-t border-border shrink-0 relative">
-                    {showInputEmoji && (
-                      <div ref={inputEmojiRef} className="absolute bottom-full mb-2 right-4 z-50">
-                        <EmojiPicker
-                          onEmojiClick={(emojiData) => setEmojiToken(emojiData.emoji)}
-                          width={300}
-                          height={400}
-                          theme={theme === 'dark' ? Theme.DARK : Theme.LIGHT}
-                        />
-                      </div>
-                    )}
+                  <div className="p-2 bg-background border-t border-border shrink-0 relative">
                     {replyToMessage && (
-                      <div className="mb-2 px-3 py-2 rounded-md border border-border bg-muted/40 text-[12px] text-muted-foreground flex items-center justify-between gap-2">
-                        <span className="truncate">Replying to: {replyToMessage.content}</span>
+                      <div className="mb-0 flex items-stretch gap-2 px-3 pt-2 pb-1.5 rounded-t-md bg-muted/50 border border-border border-b-0">
+                        <div className="w-[3px] rounded-full bg-blue-500 shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[11px] font-semibold text-blue-400 mb-0.5">
+                            Replying to <span className="font-bold">@{replyToMessage.senderId === currentUserId ? user?.username : selectedData.otherUser?.username}</span>
+                          </p>
+                          <p className="text-[12px] text-muted-foreground truncate">{replyToMessage.content}</p>
+                        </div>
                         <button
                           type="button"
                           onClick={() => setReplyToMessage(null)}
-                          className="text-xs font-medium hover:text-foreground"
+                          className="self-start mt-0.5 text-muted-foreground hover:text-foreground transition-colors shrink-0"
                         >
-                          Cancel
+                          <X className="h-3.5 w-3.5" />
                         </button>
                       </div>
                     )}
-                    <div className="mb-2 flex justify-end">
-                      <button
-                        type="button"
-                        onClick={() => setShowInputEmoji(!showInputEmoji)}
-                        className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-border bg-background text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-                      >
-                        <Smile className="size-5" />
-                      </button>
-                    </div>
                     <RichMessageInput
                       placeholder="Type a message..."
                       onSubmit={handleSendMessage}
-                      appendTextToken={emojiToken}
-                      onTokenConsumed={() => setEmojiToken(null)}
+                      serverEmojis={serverEmojis}
+                      serverStickers={serverStickers}
                       onSlashCommands={[
                         {
                           id: "poll",
@@ -860,7 +1051,7 @@ export default function DirectMessageClient({
                     />
                   </div>
                 ) : (
-                  <div className="p-4 bg-[#fafafa] dark:bg-[#111113] border-t border-border shrink-0 text-center">
+                  <div className="p-4 bg-background border-t border-border shrink-0 text-center">
                     <p className="text-[13px] text-muted-foreground">
                       {selectedData.isClosed
                         ? `This conversation was closed by ${selectedData.closedBy === currentUserId ? "you" : "the other user"}.`
@@ -871,7 +1062,7 @@ export default function DirectMessageClient({
               </div>
             )
           ) : (
-            <div className="flex-1 flex items-center justify-center bg-[#fafafa] dark:bg-[#111113]">
+            <div className="flex-1 flex items-center justify-center bg-background">
               <p className="text-[14px] text-muted-foreground">Select a conversation or group to start chatting.</p>
             </div>
           )}
@@ -902,7 +1093,7 @@ export default function DirectMessageClient({
                 <button
                   type="submit"
                   disabled={verifying || !accessCode}
-                  className="w-full h-11 bg-foreground text-background rounded-md text-[14px] font-medium hover:opacity-90 transition-opacity disabled:opacity-50"
+                  className="w-full h-11 bg-primary text-primary-foreground rounded-md text-[14px] font-medium hover:opacity-90 transition-opacity disabled:opacity-50"
                 >
                   {verifying ? "Verifying..." : "Verify Code"}
                 </button>
@@ -913,8 +1104,11 @@ export default function DirectMessageClient({
                   <UserIcon className="size-10 text-muted-foreground" />
                 </div>
                 <div>
-                  <h3 className="text-[18px] font-semibold text-foreground">{foundUser.name} {foundUser.surname}</h3>
-                  <p className="text-[14px] text-muted-foreground mt-1">@{foundUser.username}  {foundUser.role}</p>
+                  <h3 className="text-[18px] font-semibold text-foreground" style={{ color: foundUser.equippedUsernameColor || 'inherit' }}>{foundUser.name} {foundUser.surname}</h3>
+                  <p className="text-[14px] text-muted-foreground mt-1">
+                    @<span style={{ color: foundUser.equippedUsernameColor || getKarmaTierColor(foundUser.karmaPoints) || undefined }}>{foundUser.username}</span>
+                    <b className="ml-1" style={{ color: foundUser.equippedUsernameColor || '#3b82f6' }}>  {foundUser.role.toUpperCase()}</b>
+                  </p>
                 </div>
                 <div className="flex gap-3 pt-4">
                   <button
@@ -925,7 +1119,8 @@ export default function DirectMessageClient({
                   </button>
                   <button
                     onClick={handleStartChat}
-                    className="flex-1 h-11 bg-foreground text-background rounded-md text-[14px] font-medium hover:opacity-90 transition-opacity flex items-center justify-center gap-2"
+                    className="flex-1 h-11 text-primary-foreground rounded-md text-[14px] font-medium hover:opacity-90 transition-opacity flex items-center justify-center gap-2"
+                    style={{ backgroundColor: foundUser.equippedUsernameColor || 'hsl(var(--primary))' }}
                   >
                     <CheckCircle className="size-4" />
                     Start Chatting
@@ -1014,7 +1209,7 @@ export default function DirectMessageClient({
             <button
               onClick={handleSendPoll}
               disabled={isSendingPoll}
-              className="px-4 py-2 rounded-md bg-foreground text-background text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50"
+              className="px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50"
             >
               {isSendingPoll ? "Sending..." : "Send poll"}
             </button>

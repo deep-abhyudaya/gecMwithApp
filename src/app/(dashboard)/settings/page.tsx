@@ -4,8 +4,8 @@ import { auth, currentUser } from "@clerk/nextjs/server";
 import { getUserAccessCode } from "@/actions/message.actions";
 
 export const metadata: Metadata = {
-  title: "Settings | CampusOS",
-  description: "Manage your CampusOS account settings.",
+  title: "Settings | gecX",
+  description: "Manage your gecX account settings.",
 };
 
 export default async function SettingsPage() {

@@ -3,7 +3,18 @@ import { PrismaClient } from '@prisma/client'
 const prismaClientSingleton = () => {
   return new PrismaClient({
     log: process.env.NODE_ENV === 'development' ? ['error', 'warn'] : ['error'],
+    datasources: {
+      db: {
+        url: process.env.DATABASE_URL,
+      },
+    },
   })
+}
+
+// Force disconnect/reconnect to clear cached plans after schema changes
+export async function resetPrismaConnection() {
+  await prisma.$disconnect();
+  return prisma.$connect();
 }
 
 declare const globalThis: {

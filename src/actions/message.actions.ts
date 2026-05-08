@@ -3,6 +3,9 @@
 import prisma from "../lib/prisma";
 import { auth, currentUser } from "@clerk/nextjs/server";
 import { revalidatePath } from "next/cache";
+import { recordKarmaEarned } from "./karma-tracking.actions";
+import { getKarmaSettings } from "./karma-settings.actions";
+import { ablyPublish, getDMChannelName } from "@/lib/ably-server";
 
 async function getBlockStatus(viewerId: string, otherId: string) {
   const block = await prisma.userBlock.findFirst({
@@ -26,19 +29,37 @@ export async function verifyAccessCode(code: string) {
   const { userId: currentUserId } = auth();
   if (!currentUserId) throw new Error("Unauthorized");
 
+  let user = null;
   const student = await prisma.student.findUnique({ where: { accessCode: code }, select: { id: true, username: true, name: true, surname: true } });
-  if (student) return { id: student.id, username: student.username, name: student.name, surname: student.surname, role: "student" };
+  if (student) user = { ...student, role: "student" };
 
-  const teacher = await prisma.teacher.findUnique({ where: { accessCode: code }, select: { id: true, username: true, name: true, surname: true } });
-  if (teacher) return { id: teacher.id, username: teacher.username, name: teacher.name, surname: teacher.surname, role: "teacher" };
+  if (!user) {
+    const teacher = await prisma.teacher.findUnique({ where: { accessCode: code }, select: { id: true, username: true, name: true, surname: true } });
+    if (teacher) user = { ...teacher, role: "teacher" };
+  }
 
-  const parent = await prisma.parent.findUnique({ where: { accessCode: code }, select: { id: true, username: true, name: true, surname: true } });
-  if (parent) return { id: parent.id, username: parent.username, name: parent.name, surname: parent.surname, role: "parent" };
+  if (!user) {
+    const parent = await prisma.parent.findUnique({ where: { accessCode: code }, select: { id: true, username: true, name: true, surname: true } });
+    if (parent) user = { ...parent, role: "parent" };
+  }
 
-  const admin = await prisma.admin.findUnique({ where: { accessCode: code }, select: { id: true, username: true } });
-  if (admin) return { id: admin.id, username: admin.username, name: "Admin", surname: "", role: "admin" };
+  if (!user) {
+    const admin = await prisma.admin.findUnique({ where: { accessCode: code }, select: { id: true, username: true } });
+    if (admin) user = { id: admin.id, username: admin.username, name: "Admin", surname: "", role: "admin" };
+  }
 
-  return null;
+  if (!user) return null;
+
+  const [karmaProfile, equipped] = await Promise.all([
+    prisma.userCommunityProfile.findUnique({ where: { userId: user.id }, select: { karmaPoints: true } }),
+    prisma.userEquippedColors.findUnique({ where: { userId: user.id }, include: { usernameColorItem: true } })
+  ]);
+
+  return {
+    ...user,
+    karmaPoints: karmaProfile?.karmaPoints || 0,
+    equippedUsernameColor: equipped?.usernameColorItem?.colorValue || null,
+  };
 }
 
 export async function startConversation(targetUserId: string) {
@@ -101,7 +122,7 @@ export async function getConversations() {
     conv.user1Id === userId ? conv.user2Id : conv.user1Id
   );
 
-  const [students, teachers, parents, admins, unreadRows] = await Promise.all([
+  const [students, teachers, parents, admins, unreadRows, communityProfiles, equippedColorsData] = await Promise.all([
     prisma.student.findMany({
       where: { id: { in: otherIds } },
       select: { id: true, username: true, name: true, surname: true },
@@ -128,6 +149,16 @@ export async function getConversations() {
       },
       _count: { id: true },
     }),
+    // Get karma points for all users
+    prisma.userCommunityProfile.findMany({
+      where: { userId: { in: otherIds } },
+      select: { userId: true, karmaPoints: true, avatar: true, customAvatar: true },
+    }),
+    // Get equipped nameplates & colors
+    prisma.userEquippedColors.findMany({
+      where: { userId: { in: otherIds } },
+      include: { nameplateItem: true, usernameColorItem: true },
+    }),
   ]);
 
   // Build lookup maps
@@ -137,6 +168,11 @@ export async function getConversations() {
   for (const p of parents) userMap.set(p.id, { ...p, role: "parent" });
   for (const a of admins) userMap.set(a.id, { username: a.username, name: "Admin", surname: "", role: "admin" });
   const unreadMap = new Map(unreadRows.map((r) => [r.conversationId, r._count.id]));
+  const karmaMap = new Map(communityProfiles.map((p) => [p.userId, p.karmaPoints]));
+  const avatarMap = new Map((communityProfiles as any[]).map((p) => [p.userId, p.avatar || null]));
+  const customAvatarMap = new Map((communityProfiles as any[]).map((p) => [p.userId, p.customAvatar || null]));
+  const nameplateMap = new Map((equippedColorsData as any[]).map((e) => [e.userId, e.nameplateItem?.colorValue || null]));
+  const usernameColorMap = new Map((equippedColorsData as any[]).map((e) => [e.userId, e.usernameColorItem?.colorValue || null]));
 
   const enrichedConversations = conversations.map((conv) => {
     const otherId = conv.user1Id === userId ? conv.user2Id : conv.user1Id;
@@ -150,6 +186,11 @@ export async function getConversations() {
         name: otherUser?.name ?? "",
         surname: otherUser?.surname ?? "",
         role: otherUser?.role ?? "student",
+        karmaPoints: karmaMap.get(otherId) ?? 0,
+        avatar: avatarMap.get(otherId) || null,
+        customAvatar: customAvatarMap.get(otherId) || null,
+        equippedNameplate: nameplateMap.get(otherId) || null,
+        equippedUsernameColor: usernameColorMap.get(otherId) || null,
         isBlockedByMe: blockedByMe.has(otherId),
         hasBlockedMe: hasBlockedMe.has(otherId),
       },
@@ -159,12 +200,18 @@ export async function getConversations() {
   return enrichedConversations;
 }
 
-export async function getConversationMessages(conversationId: number) {
+
+export async function getConversationMessages(conversationId: number, limit: number = 30, before?: Date) {
   const { userId } = auth();
   if (!userId) throw new Error("Unauthorized");
 
-  return await prisma.directMessage.findMany({
-    where: { conversationId },
+  const where: any = { conversationId };
+  if (before) {
+    where.createdAt = { lt: before };
+  }
+
+  const messages = await prisma.directMessage.findMany({
+    where,
     include: {
       reactions: true,
       poll: {
@@ -181,8 +228,11 @@ export async function getConversationMessages(conversationId: number) {
         },
       },
     },
-    orderBy: { createdAt: "asc" },
+    orderBy: { createdAt: "desc" },
+    take: limit, // Limit to prevent loading too many messages at once
   });
+
+  return messages.reverse();
 }
 
 export async function sendDirectMessage(conversationId: number, content: string, replyToId?: number) {
@@ -209,6 +259,17 @@ export async function sendDirectMessage(conversationId: number, content: string,
       senderId: userId,
       replyToId: replyToId || null,
     },
+    include: { reactions: true },
+  });
+
+  // Award karma for sending a direct message
+  const settings = await getKarmaSettings();
+  await recordKarmaEarned(userId, settings.messageSent, "dm_sent");
+
+  // Broadcast to other client via Ably
+  await ablyPublish(getDMChannelName(conversationId), {
+    type: "message:new",
+    message: msg,
   });
 
   revalidatePath("/messages");
@@ -238,6 +299,11 @@ export async function sendDirectCommandMessage(
       replyToId: replyToId || null,
     },
   });
+
+  // Award karma for sending a direct message
+  const settings = await getKarmaSettings();
+  await recordKarmaEarned(userId, settings.messageSent, "dm_command_sent");
+
   revalidatePath("/messages");
   return msg;
 }
@@ -287,6 +353,10 @@ export async function sendDirectPoll(
     },
   });
 
+  // Award karma for sending a direct message (poll)
+  const settings = await getKarmaSettings();
+  await recordKarmaEarned(userId, settings.messageSent, "dm_poll_sent");
+
   revalidatePath("/messages");
   return msg;
 }
@@ -297,13 +367,20 @@ export async function deleteDirectMessage(messageId: number) {
 
   const msg = await prisma.directMessage.findUnique({
     where: { id: messageId },
-    select: { senderId: true, conversation: { select: { user1Id: true, user2Id: true } } },
+    select: { senderId: true, conversationId: true, conversation: { select: { user1Id: true, user2Id: true } } },
   });
   if (!msg) throw new Error("Message not found");
   const canDelete = msg.senderId === userId || msg.conversation.user1Id === userId || msg.conversation.user2Id === userId;
   if (!canDelete) throw new Error("Unauthorized");
 
   await prisma.directMessage.delete({ where: { id: messageId } });
+
+  // Broadcast deletion via Ably
+  await ablyPublish(getDMChannelName(msg.conversationId), {
+    type: "message:delete",
+    messageId,
+  });
+
   revalidatePath("/messages");
 }
 
@@ -389,10 +466,13 @@ export async function toggleDMReaction(messageId: number, emoji: string) {
     },
   });
 
+  let eventType: "reaction:add" | "reaction:remove";
+
   if (existingReaction) {
     await prisma.directMessageReaction.delete({
       where: { id: existingReaction.id },
     });
+    eventType = "reaction:remove";
   } else {
     await prisma.directMessageReaction.create({
       data: {
@@ -400,6 +480,31 @@ export async function toggleDMReaction(messageId: number, emoji: string) {
         userId,
         emoji,
       },
+    });
+
+    // Award karma to message sender when someone reacts to their DM
+    const message = await prisma.directMessage.findUnique({
+      where: { id: messageId },
+      select: { senderId: true, conversationId: true },
+    });
+    if (message && message.senderId !== userId) {
+      const settings = await getKarmaSettings();
+      await recordKarmaEarned(message.senderId, settings.messageReactionReceived, "dm_reaction_received");
+    }
+    eventType = "reaction:add";
+  }
+
+  // Get conversationId for Ably broadcast
+  const msg = await prisma.directMessage.findUnique({
+    where: { id: messageId },
+    select: { conversationId: true },
+  });
+  if (msg) {
+    await ablyPublish(getDMChannelName(msg.conversationId), {
+      type: eventType,
+      messageId,
+      emoji,
+      userId,
     });
   }
 

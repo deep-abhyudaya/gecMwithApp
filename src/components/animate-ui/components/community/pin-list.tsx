@@ -97,7 +97,7 @@ function PinList({
                   layoutId={`item-${item.id}`}
                   onClick={() => toggleStatus(item.id)}
                   transition={transition}
-                  className="flex items-center justify-between gap-5 rounded-2xl bg-neutral-200 dark:bg-neutral-800 p-2"
+                  className="flex items-center justify-between gap-5 rounded-2xl bg-card p-2"
                 >
                   <div className="flex items-center gap-2">
                     <div className="rounded-lg bg-background p-2">
@@ -110,7 +110,7 @@ function PinList({
                       </div>
                     </div>
                   </div>
-                  <div className="flex items-center justify-center size-8 rounded-full bg-neutral-400 dark:bg-neutral-600">
+                  <div className="flex items-center justify-center size-8 rounded-full bg-muted-foreground/30">
                     <Pin className="size-4 text-white fill-white" />
                   </div>
                 </motion.div>
@@ -149,7 +149,7 @@ function PinList({
                   layoutId={`item-${item.id}`}
                   onClick={() => toggleStatus(item.id)}
                   transition={transition}
-                  className="flex items-center justify-between gap-5 rounded-2xl bg-neutral-200 dark:bg-neutral-800 p-2 group"
+                  className="flex items-center justify-between gap-5 rounded-2xl bg-card p-2 group"
                 >
                   <div className="flex items-center gap-2">
                     <div className="rounded-lg bg-background p-2">
@@ -162,7 +162,7 @@ function PinList({
                       </div>
                     </div>
                   </div>
-                  <div className="flex items-center justify-center size-8 rounded-full bg-neutral-400 dark:bg-neutral-600 opacity-0 group-hover:opacity-100 transition-opacity duration-250">
+                  <div className="flex items-center justify-center size-8 rounded-full bg-muted-foreground/30 opacity-0 group-hover:opacity-100 transition-opacity duration-250">
                     <Pin className="size-4 text-white" />
                   </div>
                 </motion.div>

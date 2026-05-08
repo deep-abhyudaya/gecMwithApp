@@ -141,7 +141,7 @@ const EventCalendar = ({ events = [] }: Props) => {
                 "relative mx-auto flex flex-col items-center justify-center",
                 "h-9 w-9 rounded-full text-sm font-medium transition-all duration-150",
                 isSelected
-                  ? "bg-foreground text-background shadow-sm"
+                  ? "bg-primary text-primary-foreground shadow-sm"
                   : isToday
                     ? "ring-1 ring-foreground/25 text-foreground font-semibold"
                     : isCurrentMonth

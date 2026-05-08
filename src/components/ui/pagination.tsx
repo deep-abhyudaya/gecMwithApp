@@ -49,7 +49,7 @@ const PaginationLink = ({
     aria-current={isActive ? "page" : undefined}
     className={cn(
       isActive
-        ? "h-9 w-9 flex items-center justify-center rounded-md text-sm font-medium bg-foreground text-background"
+        ? "h-9 w-9 flex items-center justify-center rounded-md text-sm font-medium bg-primary text-primary-foreground"
         : buttonVariants({ variant: "ghost", size }),
       className
     )}

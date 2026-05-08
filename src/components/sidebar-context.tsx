@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useRef, useState } from "react";
+import { createContext, useContext, useRef, useState, useEffect, useMemo } from "react";
 import { ImperativePanelHandle } from "react-resizable-panels";
 
 type SidebarContextType = {
@@ -27,33 +27,63 @@ export function useSidebarCtx() {
 
 export function SidebarContextProvider({
   children,
+  value,
 }: {
   children: React.ReactNode;
+  value?: SidebarContextType;
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const panelRef = useRef<ImperativePanelHandle>(null);
 
+  const toggle = () => {
+    const panel = panelRef.current;
+    if (panel) {
+      if (panel.isCollapsed()) {
+        panel.expand();
+      } else {
+        panel.collapse();
+      }
+    }
+  };
+
+  useEffect(() => {
+    if (value) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === "b") {
+        e.preventDefault();
+        if (window.innerWidth < 768) {
+          setMobileOpen((open) => !open);
+        } else {
+          toggle();
+        }
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [value]);
+
+  if (value) {
+    return (
+      <SidebarCtx.Provider value={value}>{children}</SidebarCtx.Provider>
+    );
+  }
+
+  const contextValue = useMemo(
+    () => ({
+      collapsed,
+      setCollapsed,
+      toggle,
+      mobileOpen,
+      setMobileOpen,
+      panelRef,
+    }),
+    [collapsed, mobileOpen]
+  );
+
   return (
-    <SidebarCtx.Provider
-      value={{
-        collapsed,
-        setCollapsed,
-        toggle: () => {
-          const panel = panelRef.current;
-          if (panel) {
-            if (panel.isCollapsed()) {
-              panel.expand();
-            } else {
-              panel.collapse();
-            }
-          }
-        },
-        mobileOpen,
-        setMobileOpen,
-        panelRef,
-      }}
-    >
+    <SidebarCtx.Provider value={contextValue}>
       {children}
     </SidebarCtx.Provider>
   );

@@ -151,6 +151,12 @@ const menuItems = [
         visible: ["admin", "teacher", "student", "parent"],
       },
       {
+        icon: "/message.png",
+        label: "Requests",
+        href: "/requests",
+        visible: ["admin", "teacher", "student", "parent"],
+      },
+      {
         icon: "/logout.png",
         label: "Logout",
         href: "/logout",
@@ -186,25 +192,27 @@ const Menu = async () => {
                   ? counts.messages
                   : item.label === "Support Tickets"
                     ? counts.tickets
-                    : item.label === "Teachers"
-                      ? counts.teachers
-                      : item.label === "Students"
-                        ? counts.students
-                        : item.label === "Parents"
-                          ? counts.parents
-                          : item.label === "Course Builder" || item.label === "Course Approvals" || item.label === "Available Courses"
-                            ? counts.courses
-                            : item.label === "Exams"
-                              ? counts.exams
-                              : item.label === "Assignments"
-                                ? counts.assignments
-                                : item.label === "Results"
-                                  ? counts.results
-                                  : item.label === "Enrollments"
-                                    ? counts.enrollments
-                                    : item.label === "Notifications"
-                                      ? counts.notifications
-                                      : 0;
+                    : item.label === "Requests"
+                      ? counts.requests
+                      : item.label === "Teachers"
+                        ? counts.teachers
+                        : item.label === "Students"
+                          ? counts.students
+                          : item.label === "Parents"
+                            ? counts.parents
+                            : item.label === "Course Builder" || item.label === "Course Approvals" || item.label === "Available Courses"
+                              ? counts.courses
+                              : item.label === "Exams"
+                                ? counts.exams
+                                : item.label === "Assignments"
+                                  ? counts.assignments
+                                  : item.label === "Results"
+                                    ? counts.results
+                                    : item.label === "Enrollments"
+                                      ? counts.enrollments
+                                      : item.label === "Notifications"
+                                        ? counts.notifications
+                                        : 0;
 
               return (
                 <Link

@@ -101,9 +101,9 @@ const FormModal = ({
   relatedData,
 }: FormContainerProps & { relatedData?: any }) => {
   const iconMap = {
-    create: { icon: Plus,   btnClass: "bg-foreground hover:bg-foreground/90 text-background",            size: "w-8 h-8" },
+    create: { icon: Plus,   btnClass: "bg-primary hover:bg-primary/90 text-primary-foreground",            size: "w-8 h-8" },
     update: { icon: Pencil, btnClass: "bg-muted hover:bg-muted/80 text-foreground border border-border", size: "w-7 h-7" },
-    delete: { icon: Trash2, btnClass: "bg-foreground hover:bg-foreground/90 text-background",            size: "w-7 h-7" },
+    delete: { icon: Trash2, btnClass: "bg-destructive hover:bg-destructive/90 text-destructive-foreground",            size: "w-7 h-7" },
   };
   const { icon: Icon, btnClass, size } = iconMap[type];
   const [open, setOpen] = useState(false);
@@ -145,7 +145,7 @@ const FormModal = ({
             <input type="hidden" name="id" value={id} />
             <button
               type="submit"
-              className="w-full px-4 py-2 rounded-lg text-sm font-medium bg-foreground text-background hover:bg-foreground/90 transition-colors"
+              className="w-full px-4 py-2 rounded-lg text-sm font-medium bg-destructive text-destructive-foreground hover:bg-destructive/90 transition-colors"
             >
               Yes, delete
             </button>
@@ -178,7 +178,7 @@ const FormModal = ({
 
           <div
             data-vaul-no-drag
-            className="overflow-y-auto flex-1 p-6 md:p-8 w-full max-w-4xl mx-auto [&_form]:flex [&_form]:flex-col [&_form]:gap-8 [&_input[type=date]]:bg-background [&_input[type=date]]:text-foreground [&_input[type=date]]:shadow-[rgba(0,0,0,0.08)_0px_0px_0px_1px] dark:[&_input[type=date]]:shadow-[rgba(255,255,255,0.1)_0px_0px_0px_1px] [&_input[type=date]]:rounded-[6px] [&_input[type=date]]:px-3 [&_input[type=date]]:max-h-[40px] [&_select]:bg-background [&_select]:text-foreground [&_select]:shadow-[rgba(0,0,0,0.08)_0px_0px_0px_1px] dark:[&_select]:shadow-[rgba(255,255,255,0.1)_0px_0px_0px_1px] [&_select]:rounded-[6px] [&_select]:px-3 [&_select]:py-2.5 [&_select]:w-full [&_select]:outline-none [&_select]:focus:ring-1 [&_select]:focus:ring-ring [&_button:not([aria-label])]:mt-4 [&_button:not([aria-label])]:w-full [&_button:not([aria-label])]:bg-foreground [&_button:not([aria-label])]:text-background [&_button:not([aria-label])]:py-2.5 [&_button:not([aria-label])]:rounded-[6px] [&_button:not([aria-label])]:font-medium [&_button:not([aria-label])]:hover:opacity-90 [&_button:not([aria-label])]:transition-colors"
+            className="overflow-y-auto flex-1 p-6 md:p-8 w-full max-w-4xl mx-auto [&_form]:flex [&_form]:flex-col [&_form]:gap-8 [&_input[type=date]]:bg-background [&_input[type=date]]:text-foreground [&_input[type=date]]:shadow-[rgba(0,0,0,0.08)_0px_0px_0px_1px] dark:[&_input[type=date]]:shadow-[rgba(255,255,255,0.1)_0px_0px_0px_1px] [&_input[type=date]]:rounded-[6px] [&_input[type=date]]:px-3 [&_input[type=date]]:max-h-[40px] [&_select]:bg-background [&_select]:text-foreground [&_select]:shadow-[rgba(0,0,0,0.08)_0px_0px_0px_1px] dark:[&_select]:shadow-[rgba(255,255,255,0.1)_0px_0px_0px_1px] [&_select]:rounded-[6px] [&_select]:px-3 [&_select]:py-2.5 [&_select]:w-full [&_select]:outline-none [&_select]:focus:ring-1 [&_select]:focus:ring-ring [&_button:not([aria-label])]:mt-4 [&_button:not([aria-label])]:w-full [&_button:not([aria-label])]:bg-primary [&_button:not([aria-label])]:text-primary-foreground [&_button:not([aria-label])]:py-2.5 [&_button:not([aria-label])]:rounded-[6px] [&_button:not([aria-label])]:font-medium [&_button:not([aria-label])]:hover:bg-primary/90 [&_button:not([aria-label])]:transition-colors"
           >
             {type === "delete" ? <DeleteForm /> : <ContentForm />}
           </div>

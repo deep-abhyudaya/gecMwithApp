@@ -5,7 +5,7 @@ import prisma from "@/lib/prisma";
 export const dynamic = "force-dynamic";
 
 /**
- * GET /api/messages/poll?convId=X&type=direct|group&since=ISO_TIMESTAMP
+ * GET /api/messages/poll?convId=X&type=direct|group|server&channelId=X&since=ISO_TIMESTAMP
  * Returns only NEW messages from OTHER users since `since`.
  * The caller's own messages are handled optimistically — no need to refetch them.
  */
@@ -17,8 +17,9 @@ export async function GET(req: NextRequest) {
   const convId = parseInt(searchParams.get("convId") ?? "0");
   const type = searchParams.get("type") ?? "direct";
   const since = searchParams.get("since");
+  const channelId = searchParams.get("channelId"); // For server channels
 
-  if (!convId || !since) return NextResponse.json([]);
+  if (!since) return NextResponse.json([]);
 
   let sinceDate: Date;
   try {
@@ -27,6 +28,40 @@ export async function GET(req: NextRequest) {
   } catch {
     return NextResponse.json([]);
   }
+
+  if (type === "server") {
+    // Server channel messages
+    if (!channelId) return NextResponse.json([]);
+
+    // Verify membership
+    const channel = await prisma.serverChannel.findUnique({
+      where: { id: channelId },
+      include: { server: { include: { members: true } } },
+    });
+    
+    if (!channel) return NextResponse.json([], { status: 404 });
+    
+    const isMember = channel.server.members.some((m: any) => m.userId === userId);
+    if (!isMember) return NextResponse.json([], { status: 403 });
+
+    const messages = await prisma.serverMessage.findMany({
+      where: {
+        channelId,
+        senderId: { not: userId },
+        createdAt: { gt: sinceDate },
+      },
+      include: {
+        reactions: true,
+        poll: { include: { options: true, votes: true } },
+        replyTo: { select: { id: true, content: true, senderId: true } },
+      },
+      orderBy: { createdAt: "asc" },
+    });
+
+    return NextResponse.json(messages);
+  }
+
+  if (!convId) return NextResponse.json([]);
 
   if (type === "group") {
     // Verify membership

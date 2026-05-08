@@ -269,7 +269,7 @@ const StudentForm = ({
       {state.error && (
         <span className="text-red-500">Something went wrong!</span>
       )}
-      <button type="submit" className="bg-foreground text-background p-2 rounded-md">
+      <button type="submit" className="bg-primary text-primary-foreground p-2 rounded-md">
         {type === "create" ? "Create" : "Update"}
       </button>
     </form>

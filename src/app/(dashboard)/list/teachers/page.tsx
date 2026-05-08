@@ -91,7 +91,7 @@ const TeacherListPage = async ({
                       ? "bg-red-500 text-white"
                       : unreadTeacherBadges[item.id].tone === "yellow"
                         ? "bg-amber-500 text-black"
-                        : "bg-blue-500 text-white"
+                        : "bg-primary text-primary-foreground"
                   }`}
                 >
                   {unreadTeacherBadges[item.id].count > 99 ? "99+" : unreadTeacherBadges[item.id].count}

@@ -36,7 +36,7 @@ export function UserButton() {
         >
           <Avatar className="h-8 w-8 sm:h-9 sm:w-9">
             <AvatarImage src={user?.imageUrl} alt={username} />
-            <AvatarFallback className="bg-foreground text-background text-xs sm:text-sm font-semibold">
+            <AvatarFallback className="bg-primary text-primary-foreground text-xs sm:text-sm font-semibold">
               {initials}
             </AvatarFallback>
           </Avatar>

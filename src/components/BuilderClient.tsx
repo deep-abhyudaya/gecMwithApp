@@ -242,7 +242,7 @@ export function AdminExpireCourseBtn({ courseId }: { courseId: number }) {
       <DialogTrigger asChild>
         <button
           type="button"
-          className="w-7 h-7 flex items-center justify-center rounded-full bg-foreground hover:bg-foreground/90 transition-colors text-background"
+          className="w-7 h-7 flex items-center justify-center rounded-full bg-primary hover:bg-primary/90 transition-colors text-primary-foreground"
           title="Admin: mark as expired"
         >
           <Ban size={14} strokeWidth={2} />
@@ -263,7 +263,7 @@ export function AdminExpireCourseBtn({ courseId }: { courseId: number }) {
           </DialogClose>
           <form action={action}>
             <input type="hidden" name="id" value={courseId} />
-            <button type="submit" className="w-full sm:w-auto px-4 py-2 text-sm rounded-lg bg-foreground text-background hover:bg-foreground/90 transition-colors">
+            <button type="submit" className="w-full sm:w-auto px-4 py-2 text-sm rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors">
               Confirm Expire
             </button>
           </form>
@@ -290,7 +290,7 @@ export function UnexpireCourseBtn({ courseId }: { courseId: number }) {
       <DialogTrigger asChild>
         <button
           type="button"
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-[8px] bg-foreground text-background text-[12px] font-semibold hover:bg-foreground/90 transition-all"
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-[8px] bg-primary text-primary-foreground text-[12px] font-semibold hover:bg-primary/90 transition-all"
           title="Un-expire course"
         >
           <RotateCcw size={13} /> Un-expire
@@ -311,7 +311,7 @@ export function UnexpireCourseBtn({ courseId }: { courseId: number }) {
           </DialogClose>
           <form action={action}>
             <input type="hidden" name="id" value={courseId} />
-            <button type="submit" className="w-full sm:w-auto px-4 py-2 text-sm rounded-lg bg-foreground text-background hover:bg-foreground/90 transition-colors">
+            <button type="submit" className="w-full sm:w-auto px-4 py-2 text-sm rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors">
               Confirm Un-expire
             </button>
           </form>

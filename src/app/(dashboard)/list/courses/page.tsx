@@ -78,7 +78,7 @@ const CourseListPage = async ({
       <td>
           <div className="flex items-center gap-2">
             <Link href={`/list/courses/${item.slug || item.id}`}>
-              <button title="View course" className="w-7 h-7 flex items-center justify-center rounded-full bg-foreground hover:bg-foreground/90 transition-colors text-background">
+              <button title="View course" className="w-7 h-7 flex items-center justify-center rounded-full bg-primary hover:bg-primary/90 transition-colors text-primary-foreground">
                 <Eye size={14} strokeWidth={2} />
               </button>
             </Link>

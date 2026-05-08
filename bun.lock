@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "campusos",
+      "name": "gecX",
       "dependencies": {
         "@blocknote/core": "^0.48.1",
         "@blocknote/react": "^0.48.1",

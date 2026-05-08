@@ -3,7 +3,7 @@
 import { replyToPublicTicket, updatePublicTicketStatus, togglePublicTicketMessageReaction, deletePublicTicketMessage } from "@/actions/public-ticket.actions";
 import { markPublicTicketMessagesAsRead } from "@/actions/notification.actions";
 import { Send, CheckCircle, XCircle, User as UserIcon, ChevronRight, UserPlus, KeyRound, AtSign, HelpCircle, Copy, Check, SmilePlus, Smile, Hash, Trash2 } from "lucide-react";
-import EmojiPicker, { Theme } from "emoji-picker-react";
+import EmojiPicker from "emoji-picker-react";
 import { useTheme } from "next-themes";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -186,7 +186,7 @@ export function PublicTicketAdminView({
         defaultSize={33}
         minSize={20}
         maxSize={45}
-        className={`flex-col ${shadowBorder} z-10 bg-[#fafafa] dark:bg-[#111113] ${localSelected ? 'hidden md:flex' : 'flex'} h-full`}
+        className={`flex-col ${shadowBorder} z-10 bg-background ${localSelected ? 'hidden md:flex' : 'flex'} h-full`}
       >
         <div className="p-4 border-b border-border bg-background shrink-0">
           <h2 className="text-[16px] font-semibold tracking-[-0.32px] text-foreground">Public Tickets</h2>
@@ -239,7 +239,7 @@ export function PublicTicketAdminView({
         className={`flex-1 flex-col bg-background h-full relative ${localSelected ? 'flex' : 'hidden md:flex'}`}
       >
         {!localSelected ? (
-          <div className="flex-1 flex items-center justify-center bg-[#fafafa] dark:bg-[#111113]">
+          <div className="flex-1 flex items-center justify-center bg-background">
             <p className="text-[14px] text-muted-foreground">Select a ticket from the sidebar to view the conversation.</p>
           </div>
         ) : (
@@ -294,7 +294,7 @@ export function PublicTicketAdminView({
             </div>
 
             {/* MESSAGES */}
-            <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-[#fafafa] dark:bg-[#111113] flex flex-col no-scrollbar">
+            <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-background flex flex-col no-scrollbar">
               {localSelected.messages?.map((msg) => {
                 const isMe = msg.isAdminReply;
                 const reactionsByEmoji = (msg.reactions || []).reduce((acc: any, r: any) => {
@@ -314,7 +314,7 @@ export function PublicTicketAdminView({
                       <div
                         onDoubleClick={() => setReplyToMessage(msg)}
                         className={`group relative p-3.5 rounded-xl text-[14px] cursor-pointer ${shadowCard} ${isMe
-                        ? "bg-foreground text-background rounded-tr-sm"
+                        ? "bg-primary text-primary-foreground rounded-tr-sm"
                         : "bg-card text-card-foreground rounded-tl-sm"
                         }`}
                       >
@@ -356,7 +356,7 @@ export function PublicTicketAdminView({
                               onEmojiClick={(emojiData) => handleReaction(msg.id, emojiData.emoji)}
                               width={280}
                               height={350}
-                              theme={theme === 'dark' ? Theme.DARK : Theme.LIGHT}
+                              theme={theme === 'dark' ? "dark" : "light"}
                             />
                           </div>
                         )}
@@ -403,7 +403,7 @@ export function PublicTicketAdminView({
                       onEmojiClick={(emojiData) => setReply((prev) => prev + emojiData.emoji)}
                       width={300}
                       height={400}
-                      theme={theme === 'dark' ? Theme.DARK : Theme.LIGHT}
+                      theme={theme === 'dark' ? "dark" : "light"}
                     />
                   </div>
                 )}
@@ -437,14 +437,14 @@ export function PublicTicketAdminView({
                   <button
                     type="submit"
                     disabled={sending || !reply.trim() || localSelected.status === "CLOSED"}
-                    className="h-11 w-11 flex items-center justify-center bg-foreground text-background rounded-md hover:opacity-90 transition-opacity disabled:opacity-50 shrink-0"
+                    className="h-11 w-11 flex items-center justify-center bg-primary text-primary-foreground rounded-md hover:opacity-90 transition-opacity disabled:opacity-50 shrink-0"
                   >
                     <Send className="size-4" />
                   </button>
                 </form>
               </div>
             ) : (
-              <div className="p-4 bg-[#fafafa] dark:bg-[#111113] border-t border-border shrink-0 text-center">
+              <div className="p-4 bg-background border-t border-border shrink-0 text-center">
                 <p className="text-[13px] text-muted-foreground">This ticket has been closed.</p>
               </div>
             )}

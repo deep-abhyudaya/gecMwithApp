@@ -13,7 +13,10 @@ import {
   Monitor,
   Check,
   RefreshCcw,
+  Trophy,
+  ArrowUpRight,
 } from "lucide-react";
+import Link from "next/link";
 import { rerollAccessCode } from "@/actions/message.actions";
 import { useTheme } from "next-themes";
 import {
@@ -292,7 +295,7 @@ export default function SettingsClient({ userInfo }: { userInfo: UserInfo }) {
                 <button
                   onClick={handleReroll}
                   disabled={isRerolling}
-                  className="px-4 py-2 rounded-md bg-foreground text-background text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50"
+                  className="px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50"
                 >
                   {isRerolling ? "Rerolling..." : "Reroll Code"}
                 </button>
@@ -305,6 +308,35 @@ export default function SettingsClient({ userInfo }: { userInfo: UserInfo }) {
             </p>
           </div>
         </Section>
+
+        {userInfo.role === "admin" && (
+          <Section
+            title="Admin Settings"
+            description="Configure system-wide settings."
+          >
+            <Link href="/admin/karma-settings" className="block">
+              <div className="flex items-center justify-between gap-4 py-2 group cursor-pointer">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-lg bg-yellow-500/10">
+                    <Trophy size={18} className="text-yellow-500" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium group-hover:text-foreground transition-colors">
+                      Karma Settings
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Configure how users earn karma points
+                    </p>
+                  </div>
+                </div>
+                <ArrowUpRight
+                  size={16}
+                  className="text-muted-foreground group-hover:text-foreground transition-colors"
+                />
+              </div>
+            </Link>
+          </Section>
+        )}
       </div>
     ),
 
@@ -312,7 +344,7 @@ export default function SettingsClient({ userInfo }: { userInfo: UserInfo }) {
       <div className="flex flex-col gap-4">
         <Section
           title="Theme"
-          description="Choose how CampusOS looks to you."
+          description="Choose how gecX looks to you."
         >
           <div className="grid grid-cols-3 gap-3">
             <ThemeOption

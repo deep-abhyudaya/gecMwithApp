@@ -15,7 +15,14 @@ const LoginPage = () => {
     if (isLoaded && isSignedIn) {
       const role = (user?.publicMetadata.role as string)?.toLowerCase();
       if (role) {
-        router.push(`/${role}`);
+        // Sync admin to Prisma DB before redirecting (fixes admin count showing 0)
+        if (role === "admin") {
+          fetch("/api/sync-admin", { method: "POST" })
+            .then(() => router.push(`/${role}`))
+            .catch(() => router.push(`/${role}`));
+        } else {
+          router.push(`/${role}`);
+        }
       }
     }
   }, [isLoaded, isSignedIn, user, router]);
@@ -69,7 +76,7 @@ const LoginPage = () => {
         <div className="relative z-10">
           <div className="flex items-center gap-3">
 
-            <span className="text-xl font-bold tracking-tight">CampusOS</span>
+            <span className="text-xl font-bold tracking-tight">gecX</span>
           </div>
         </div>
 
@@ -78,7 +85,7 @@ const LoginPage = () => {
 
         {/* Footer */}
         <div className="relative z-10 text-white/30 text-xs">
-          © {new Date().getFullYear()} CampusOS. All rights reserved.
+          © {new Date().getFullYear()} gecX. All rights reserved.
         </div>
       </div>
 
@@ -89,7 +96,7 @@ const LoginPage = () => {
             <div className="h-9 w-9 rounded-xl bg-white flex items-center justify-center">
               <GraduationCap className="h-5 w-5 text-black" />
             </div>
-            <span className="text-xl font-bold tracking-tight">CampusOS</span>
+            <span className="text-xl font-bold tracking-tight">gecX</span>
           </div>
 
           <div>

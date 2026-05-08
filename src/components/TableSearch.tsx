@@ -107,7 +107,7 @@ const TableSearchInner = ({ items = [], entityLabel = "Results", allowPinning = 
       <button
         id="table-search-trigger"
         onClick={handleOpen}
-        className="flex items-center gap-2 text-xs rounded-full px-3 py-2 w-full md:w-64 bg-slate-100 hover:bg-slate-200 dark:bg-white/5 dark:hover:bg-white/10 transition-all duration-200 text-muted-foreground hover:text-foreground group border border-transparent hover:border-white/10"
+        className="flex items-center gap-2 text-xs rounded-full px-3 py-2 w-full md:w-64 bg-secondary hover:bg-secondary/80 transition-all duration-200 text-muted-foreground hover:text-foreground group border border-transparent hover:border-border/50"
         aria-label="Open search"
       >
         <Search className="h-3.5 w-3.5 shrink-0 opacity-60 group-hover:opacity-100 transition-opacity" />
@@ -126,13 +126,13 @@ const TableSearchInner = ({ items = [], entityLabel = "Results", allowPinning = 
             onKeyDown={(e) =>
               e.key === "Enter" && clearSearch(e as unknown as React.MouseEvent)
             }
-            className="ml-auto p-0.5 rounded-full hover:bg-white/10 transition-colors"
+            className="ml-auto p-0.5 rounded-full hover:bg-foreground/10 transition-colors"
             aria-label="Clear search"
           >
             <X className="h-3 w-3 opacity-60" />
           </span>
         ) : (
-          <kbd className="ml-auto hidden sm:inline-flex h-5 select-none items-center gap-1 rounded border border-black/10 dark:border-white/10 bg-black/5 dark:bg-white/5 px-1.5 font-mono text-[10px] font-medium opacity-60">
+          <kbd className="ml-auto hidden sm:inline-flex h-5 select-none items-center gap-1 rounded border border-border/40 bg-foreground/5 px-1.5 font-mono text-[10px] font-medium opacity-60">
             <span className="text-xs">⌘</span>F
           </kbd>
         )}
@@ -213,7 +213,7 @@ const TableSearchInner = ({ items = [], entityLabel = "Results", allowPinning = 
                           type: entityLabel.toLowerCase(),
                         });
                       }}
-                      className={`ml-auto shrink-0 p-1.5 rounded-full hover:bg-neutral-200 dark:hover:bg-neutral-800 transition-colors ${
+                      className={`ml-auto shrink-0 p-1.5 rounded-full hover:bg-accent transition-colors ${
                         isPinned(item.id, entityLabel.toLowerCase())
                           ? "text-foreground"
                           : "text-muted-foreground/40 hover:text-muted-foreground"

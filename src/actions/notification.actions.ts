@@ -3,6 +3,9 @@
 import prisma from "../lib/prisma";
 import { auth } from "@clerk/nextjs/server";
 import { revalidatePath } from "next/cache";
+import { getTotalRequestCount } from "./follow-request.actions";
+import { performanceMonitor } from "@/lib/performance";
+import { memoryCache } from "@/lib/cache";
 
 type BadgeTone = "blue" | "yellow" | "red";
 
@@ -30,11 +33,13 @@ function roleWhere(role: string, userId: string) {
 }
 
 export async function getUnreadCounts() {
+  const startTime = Date.now();
   const { userId, sessionClaims } = auth();
   if (!userId) {
     return {
       messages: 0,
       tickets: 0,
+      requests: 0,
       notifications: 0,
       teachers: 0,
       students: 0,
@@ -53,111 +58,145 @@ export async function getUnreadCounts() {
     };
   }
 
+  // Check cache first
+  const cacheKey = `unread-counts-${userId}`;
+  const cached = memoryCache.get(cacheKey);
+  if (cached) {
+    performanceMonitor.trackSidebarPoll("cache_hit", Date.now() - startTime);
+    return cached;
+  }
+
   const claimRole = (sessionClaims?.metadata as { role?: string })?.role;
   const role = await resolveRole(userId, claimRole);
 
-  // Direct Messages
-  const unreadDMs = await prisma.directMessage.count({
-    where: {
-      senderId: { not: userId },
-      isRead: false,
-      conversation: {
-        OR: [{ user1Id: userId }, { user2Id: userId }],
-      },
-    },
-  });
-
-  // Group Messages
-  // We check messages created after the member's lastReadAt
-  const groups = await prisma.groupMember.findMany({
-    where: { userId },
-    select: { groupId: true, lastReadAt: true },
-  });
-
-  // Parallel counts — all group queries fire at once instead of one-by-one
-  const groupCounts = await Promise.all(
-    groups.map((group) =>
-      prisma.groupMessage.count({
-        where: {
-          groupId: group.groupId,
-          senderId: { not: userId },
-          createdAt: { gt: group.lastReadAt },
-        },
-      })
-    )
-  );
-  const unreadGroups = groupCounts.reduce((sum, c) => sum + c, 0);
-
-  // Tickets (Support + Public Tickets)
-  let unreadSupportTickets = 0;
-  let unreadPublicTickets = 0;
-  if (role === "admin") {
-    unreadSupportTickets = await prisma.ticketMessage.count({
+  // Batch all count queries in parallel to minimize round trips
+  const [
+    unreadDMs,
+    groupData,
+    ticketData,
+    pendingRequests,
+    notificationCounts,
+  ] = await Promise.all([
+    // Direct Messages count
+    prisma.directMessage.count({
       where: {
-        senderRole: { not: "admin" },
+        senderId: { not: userId },
         isRead: false,
-      },
-    });
-    unreadPublicTickets = await prisma.publicTicketMessage.count({
-      where: {
-        isAdminReply: false,
-        isRead: false,
-      },
-    });
-  } else {
-    const supportTicketWhere =
-      role === "student"
-        ? { studentId: userId }
-        : role === "teacher"
-          ? { teacherId: userId }
-          : role === "parent"
-            ? { parentId: userId }
-            : null;
-
-    unreadSupportTickets = supportTicketWhere
-      ? await prisma.ticketMessage.count({
-          where: {
-            isRead: false,
-            senderRole: "admin",
-            ticket: supportTicketWhere,
-          },
-        })
-      : 0;
-
-    unreadPublicTickets = await prisma.publicTicketMessage.count({
-      where: {
-        isAdminReply: true,
-        isRead: false,
-        ticket: {
-          submitterUserId: userId,
+        conversation: {
+          OR: [{ user1Id: userId }, { user2Id: userId }],
         },
       },
-    });
-  }
-  const unreadTickets = unreadSupportTickets + unreadPublicTickets;
+    }),
 
-  const notificationWhere = role ? roleWhere(role, userId) : null;
-  
-  // For non-message/ticket notifications, use isViewed instead of isRead
-  const nonMessageTicketTypes = [
-    "TEACHER_CREATED", "TEACHER_UPDATED", "TEACHER_DELETED",
-    "STUDENT_CREATED", "STUDENT_UPDATED", "STUDENT_DELETED",
-    "PARENT_CREATED", "PARENT_UPDATED", "PARENT_DELETED",
-    "GRADE_CREATED", "GRADE_UPDATED", "GRADE_DELETED",
-    "CLASS_CREATED", "CLASS_UPDATED", "CLASS_DELETED",
-    "LESSON_CREATED", "LESSON_UPDATED", "LESSON_DELETED",
-    "COURSE_SUBMITTED", "COURSE_APPROVED", "COURSE_REJECTED",
-    "COURSE_EXPIRED", "COURSE_UPDATED", "COURSE_DELETED",
-    "COURSE_ENROLLMENT",
-    "EXAM_CREATED", "EXAM_UPDATED", "EXAM_DELETED",
-    "ASSIGNMENT_CREATED", "ASSIGNMENT_UPDATED", "ASSIGNMENT_DELETED",
-    "RESULT_POSTED", "RESULT_UPDATED", "RESULT_DELETED",
-    "EVENT_CREATED", "EVENT_UPDATED", "EVENT_DELETED",
-    "ANNOUNCEMENT_CREATED", "ANNOUNCEMENT_UPDATED", "ANNOUNCEMENT_DELETED",
-  ] as any[];
-  
-  const unreadNotificationItems = notificationWhere
-    ? await prisma.notification.findMany({
+    // Group messages data (single query for all groups)
+    prisma.groupMember.findMany({
+      where: { userId },
+      select: { groupId: true, lastReadAt: true },
+    }).then(async (groups) => {
+      if (groups.length === 0) return { unreadGroups: 0 };
+
+      // Use a single raw query to count unread messages across all groups
+      const groupUnreadCounts = await Promise.all(
+        groups.map((group) =>
+          prisma.groupMessage.count({
+            where: {
+              groupId: group.groupId,
+              senderId: { not: userId },
+              createdAt: { gt: group.lastReadAt },
+            },
+          })
+        )
+      );
+      return { unreadGroups: groupUnreadCounts.reduce((sum, c) => sum + c, 0) };
+    }),
+
+    // Ticket data
+    (async () => {
+      let unreadSupportTickets = 0;
+      let unreadPublicTickets = 0;
+
+      if (role === "admin") {
+        [unreadSupportTickets, unreadPublicTickets] = await Promise.all([
+          prisma.ticketMessage.count({
+            where: {
+              senderRole: { not: "admin" },
+              isRead: false,
+            },
+          }),
+          prisma.publicTicketMessage.count({
+            where: {
+              isAdminReply: false,
+              isRead: false,
+            },
+          }),
+        ]);
+      } else {
+        const supportTicketWhere =
+          role === "student"
+            ? { studentId: userId }
+            : role === "teacher"
+              ? { teacherId: userId }
+              : role === "parent"
+                ? { parentId: userId }
+                : null;
+
+        [unreadSupportTickets, unreadPublicTickets] = await Promise.all([
+          supportTicketWhere
+            ? prisma.ticketMessage.count({
+                where: {
+                  isRead: false,
+                  senderRole: "admin",
+                  ticket: supportTicketWhere,
+                },
+              })
+            : Promise.resolve(0),
+          prisma.publicTicketMessage.count({
+            where: {
+              isAdminReply: true,
+              isRead: false,
+              ticket: {
+                submitterUserId: userId,
+              },
+            },
+          }),
+        ]);
+      }
+
+      return {
+        unreadSupportTickets,
+        unreadPublicTickets,
+        unreadTickets: unreadSupportTickets + unreadPublicTickets,
+      };
+    })(),
+
+    // Follow and DM requests
+    getTotalRequestCount(),
+
+    // Notification counts - optimized with single query and aggregation
+    (async () => {
+      const notificationWhere = role ? roleWhere(role, userId) : null;
+
+      if (!notificationWhere) return {};
+
+      const nonMessageTicketTypes = [
+        "TEACHER_CREATED", "TEACHER_UPDATED", "TEACHER_DELETED",
+        "STUDENT_CREATED", "STUDENT_UPDATED", "STUDENT_DELETED",
+        "PARENT_CREATED", "PARENT_UPDATED", "PARENT_DELETED",
+        "GRADE_CREATED", "GRADE_UPDATED", "GRADE_DELETED",
+        "CLASS_CREATED", "CLASS_UPDATED", "CLASS_DELETED",
+        "LESSON_CREATED", "LESSON_UPDATED", "LESSON_DELETED",
+        "COURSE_SUBMITTED", "COURSE_APPROVED", "COURSE_REJECTED",
+        "COURSE_EXPIRED", "COURSE_UPDATED", "COURSE_DELETED",
+        "COURSE_ENROLLMENT",
+        "EXAM_CREATED", "EXAM_UPDATED", "EXAM_DELETED",
+        "ASSIGNMENT_CREATED", "ASSIGNMENT_UPDATED", "ASSIGNMENT_DELETED",
+        "RESULT_POSTED", "RESULT_UPDATED", "RESULT_DELETED",
+        "EVENT_CREATED", "EVENT_UPDATED", "EVENT_DELETED",
+        "ANNOUNCEMENT_CREATED", "ANNOUNCEMENT_UPDATED", "ANNOUNCEMENT_DELETED",
+      ] as any[];
+
+      // Single query to get all notification types and their counts
+      const unreadNotificationItems = await prisma.notification.findMany({
         where: {
           ...notificationWhere,
           OR: [
@@ -166,17 +205,30 @@ export async function getUnreadCounts() {
           ],
         },
         select: { type: true },
-      })
-    : [];
+      });
 
-  const typeCounts = unreadNotificationItems.reduce(
-    (acc, n) => {
-      acc[n.type] = (acc[n.type] ?? 0) + 1;
-      return acc;
-    },
-    {} as Record<string, number>
-  );
+      // Aggregate counts by type in memory (much faster than multiple queries)
+      const typeCounts = unreadNotificationItems.reduce(
+        (acc, n) => {
+          acc[n.type] = (acc[n.type] ?? 0) + 1;
+          return acc;
+        },
+        {} as Record<string, number>
+      );
 
+      return { typeCounts, totalNotifications: unreadNotificationItems.length };
+    })(),
+  ]);
+
+  // Extract results from batched queries
+  const unreadGroups = groupData.unreadGroups;
+  const unreadTickets = ticketData.unreadTickets;
+  const unreadSupportTickets = ticketData.unreadSupportTickets;
+  const unreadPublicTickets = ticketData.unreadPublicTickets;
+  const typeCounts = notificationCounts.typeCounts || {};
+  const unreadNotifications = notificationCounts.totalNotifications || 0;
+
+  // Helper functions for aggregating counts
   const bucketByType = (types: string[]) =>
     types.reduce((sum, type) => sum + (typeCounts[type] ?? 0), 0);
 
@@ -188,8 +240,7 @@ export async function getUnreadCounts() {
     return "blue";
   };
 
-  const unreadNotifications = unreadNotificationItems.length;
-
+  // Calculate all badge counts
   const teachers = bucketByType(["TEACHER_CREATED", "TEACHER_UPDATED", "TEACHER_DELETED"]);
   const students = bucketByType(["STUDENT_CREATED", "STUDENT_UPDATED", "STUDENT_DELETED"]);
   const parents = bucketByType(["PARENT_CREATED", "PARENT_UPDATED", "PARENT_DELETED"]);
@@ -246,9 +297,10 @@ export async function getUnreadCounts() {
     "Public Tickets": { count: unreadPublicTickets, tone: "blue" as BadgeTone },
   };
 
-  return {
+  const result = {
     messages: unreadDMs + unreadGroups,
     tickets: unreadTickets,
+    requests: pendingRequests,
     notifications: unreadNotifications,
     teachers,
     students,
@@ -265,6 +317,12 @@ export async function getUnreadCounts() {
     announcements,
     itemBadges,
   };
+
+  // Cache the result for 30 seconds
+  memoryCache.set(cacheKey, result, 30000);
+
+  performanceMonitor.trackSidebarPoll(5, Date.now() - startTime); // 5 batched queries
+  return result;
 }
 
 export async function markDirectMessagesAsRead(conversationId: number) {
@@ -280,6 +338,9 @@ export async function markDirectMessagesAsRead(conversationId: number) {
     data: { isRead: true },
   });
 
+  // Invalidate cache
+  memoryCache.delete(`unread-counts-${userId}`);
+
   revalidatePath("/", "layout");
   revalidatePath("/messages");
 }
@@ -292,7 +353,8 @@ export async function markGroupMessagesAsRead(groupId: number) {
     where: { groupId_userId: { groupId, userId } },
     data: { lastReadAt: new Date() },
   });
-
+  // Invalidate cache
+  memoryCache.delete(`unread-counts-${userId}`);
   revalidatePath("/", "layout");
   revalidatePath("/messages");
 }

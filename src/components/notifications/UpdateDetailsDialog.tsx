@@ -97,7 +97,7 @@ export function UpdateDetailsDialog({
     if (type.endsWith("_UPDATED")) return { text: "UPDATED", className: "bg-orange-500 text-white" };
     if (type.endsWith("_APPROVED")) return { text: "APPROVED", className: "bg-green-600 text-white" };
     if (type.endsWith("_REJECTED")) return { text: "REJECTED", className: "bg-red-600 text-white" };
-    if (type.endsWith("_SUBMITTED")) return { text: "SUBMITTED", className: "bg-blue-500 text-white" };
+    if (type.endsWith("_SUBMITTED")) return { text: "SUBMITTED", className: "bg-primary text-primary-foreground" };
     if (type.endsWith("_EXPIRED")) return { text: "EXPIRED", className: "bg-gray-500 text-white" };
     if (type.endsWith("_POSTED")) return { text: "POSTED", className: "bg-green-600 text-white" };
     if (type.endsWith("_ENROLLMENT")) return { text: "ENROLLED", className: "bg-green-600 text-white" };
@@ -139,7 +139,7 @@ export function UpdateDetailsDialog({
                 <div
                   key={notification.id}
                   className={cn(
-                    "border-white/10 border rounded-lg p-4 space-y-3 bg-muted/30",
+                    "border-border border rounded-lg p-4 space-y-3 bg-muted/30",
                     !notification.isViewed && "border-white/50"
                   )}
                 >

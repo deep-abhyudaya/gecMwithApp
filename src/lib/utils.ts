@@ -5,6 +5,22 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
+export function formatDistanceToNow(date: Date): string {
+  const now = new Date();
+  const diffInMs = now.getTime() - new Date(date).getTime();
+  const diffInSecs = Math.floor(diffInMs / 1000);
+  const diffInMins = Math.floor(diffInSecs / 60);
+  const diffInHours = Math.floor(diffInMins / 60);
+  const diffInDays = Math.floor(diffInHours / 24);
+
+  if (diffInSecs < 60) return "just now";
+  if (diffInMins < 60) return `${diffInMins}m`;
+  if (diffInHours < 24) return `${diffInHours}h`;
+  if (diffInDays < 30) return `${diffInDays}d`;
+  if (diffInDays < 365) return `${Math.floor(diffInDays / 30)}mo`;
+  return `${Math.floor(diffInDays / 365)}y`;
+}
+
 const getLatestMonday = (): Date => {
   const today = new Date();
   const dayOfWeek = today.getDay();

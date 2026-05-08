@@ -1,0 +1,4 @@
+#Fri May 08 11:28:43 IST 2026
+base.0=C\:\\Users\\advwa\\OneDrive\\Documents\\NextJS\\New folder (2)\\sms\\app\\build\\intermediates\\dex\\release\\minifyReleaseWithR8\\classes.dex
+renamed.0=classes.dex
+path.0=classes.dex

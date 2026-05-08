@@ -13,14 +13,19 @@ import {
   Pilcrow,
   Quote,
   Send,
+  SmilePlus,
   Strikethrough,
   Table,
   Trash2,
   Underline,
+  Film,
 } from "lucide-react";
 import SlashCommandMenu, { SlashCommand } from "./SlashCommandMenu";
 import LinkDialog from "./LinkDialog";
 import TableDialog from "./TableDialog";
+import MediaPicker, { EmojiItem, StickerItem } from "./MediaPicker";
+import EmojiPicker from "./LazyEmojiPicker";
+import { useTheme } from "next-themes";
 
 type RichMessageInputProps = {
   placeholder: string;
@@ -31,6 +36,8 @@ type RichMessageInputProps = {
   onEditorChange?: (content: string) => void;
   appendTextToken?: string | null;
   onTokenConsumed?: () => void;
+  serverEmojis?: EmojiItem[];
+  serverStickers?: StickerItem[];
 };
 
 const QUICK_MARKDOWN_COMMANDS = [
@@ -63,6 +70,8 @@ export default function RichMessageInput({
   onEditorChange,
   appendTextToken,
   onTokenConsumed,
+  serverEmojis = [],
+  serverStickers = [],
 }: RichMessageInputProps) {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -70,6 +79,36 @@ export default function RichMessageInput({
   const [showSlashMenu, setShowSlashMenu] = useState(false);
   const [showLinkDialog, setShowLinkDialog] = useState(false);
   const [showTableDialog, setShowTableDialog] = useState(false);
+  const [showMediaPicker, setShowMediaPicker] = useState(false);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [mediaPickerInitialTab, setMediaPickerInitialTab] = useState<"gif" | "emoji" | "sticker">("gif");
+  const pickerRef = useRef<HTMLDivElement>(null);
+  const emojiPickerRef = useRef<HTMLDivElement>(null);
+  const { resolvedTheme } = useTheme();
+
+  // Close picker on outside click
+  useEffect(() => {
+    if (!showMediaPicker) return;
+    const handler = (e: MouseEvent) => {
+      if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) {
+        setShowMediaPicker(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [showMediaPicker]);
+
+  // Close unicode emoji picker on outside click
+  useEffect(() => {
+    if (!showEmojiPicker) return;
+    const handler = (e: MouseEvent) => {
+      if (emojiPickerRef.current && !emojiPickerRef.current.contains(e.target as Node)) {
+        setShowEmojiPicker(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [showEmojiPicker]);
 
   const replaceWithMarkdown = useCallback((nextMarkdown: string) => {
     setMarkdown(nextMarkdown);
@@ -145,9 +184,23 @@ export default function RichMessageInput({
 
   const submitCurrent = useCallback(async () => {
     const current = markdown.trim();
-    if (!current || disabled || submitDisabled) return;
-    await onSubmit(markdown);
+    console.log("[RichMessageInput] submitCurrent called, markdown:", current, "disabled:", disabled, "submitDisabled:", submitDisabled);
+    if (!current || disabled || submitDisabled) {
+      console.log("[RichMessageInput] submitCurrent early return");
+      return;
+    }
+
+    const previousMarkdown = markdown;
     await replaceWithMarkdown("");
+
+    try {
+      console.log("[RichMessageInput] calling onSubmit with:", current);
+      await onSubmit(current);
+    } catch (error) {
+      console.error("[RichMessageInput] send failed, restoring text:", error);
+      await replaceWithMarkdown(previousMarkdown);
+      throw error;
+    }
   }, [disabled, markdown, onSubmit, replaceWithMarkdown, submitDisabled]);
 
   const toggleHeading = useCallback(async () => {
@@ -196,30 +249,102 @@ export default function RichMessageInput({
 
   return (
     <div ref={wrapperRef} className="relative z-0">
-      {/* Slash menu positioned outside the overflow-hidden container */}
+      {/* Slash menu */}
       {showSlashMenu && slashCommands.length > 0 && (
         <div className="absolute bottom-full left-0 right-0 mb-2 z-[9999]">
           <SlashCommandMenu query={markdown.replace(/^\//, "")} commands={slashCommands} />
         </div>
       )}
-      <div className="rounded-md border border-border bg-background overflow-hidden">
-      <div className="flex items-center gap-1 border-b border-border px-2 py-1 flex-shrink-0">
+
+      {/* Media Picker */}
+      {showMediaPicker && (
+        <div ref={pickerRef} className="absolute bottom-full right-0 mb-2 z-[9999]">
+          <MediaPicker
+            key={mediaPickerInitialTab}
+            initialTab={mediaPickerInitialTab}
+            onGifSelect={(url) => {
+              onSubmit(url);
+              setShowMediaPicker(false);
+            }}
+            onEmojiSelect={(syntax) => {
+              appendInlineAtEnd(syntax);
+              setShowMediaPicker(false);
+            }}
+            onStickerSelect={(url) => {
+              onSubmit(url);
+              setShowMediaPicker(false);
+            }}
+            serverEmojis={serverEmojis}
+            serverStickers={serverStickers}
+            onClose={() => setShowMediaPicker(false)}
+          />
+        </div>
+      )}
+      {/* Unicode Emoji Picker */}
+      {showEmojiPicker && (
+        <div ref={emojiPickerRef} className="absolute bottom-full right-0 mb-2 z-[9999]">
+          <EmojiPicker
+            onEmojiClick={(emojiData) => {
+              appendInlineAtEnd(emojiData.emoji);
+              setShowEmojiPicker(false);
+            }}
+            width={300}
+            height={400}
+            theme={resolvedTheme === "dark" ? "dark" : "light"}
+          />
+        </div>
+      )}
+      <div className="rounded-md border border-border overflow-hidden">
+      <div className="flex items-center gap-0.5 border-b border-border px-1.5 py-0.5 flex-shrink-0">
         {formattingCommands.map((btn, index) => (
           <button
             key={index}
             type="button"
             onClick={btn.action}
-            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+            className="inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
             disabled={disabled}
           >
             {btn.icon}
           </button>
         ))}
-        <div className="ml-auto flex items-center gap-1.5">
-          {/* Removed the problematic color picker buttons - now handled by floating toolbar */}
+        <div className="ml-auto flex items-center gap-0.5">
+          {/* Media Picker Button */}
+          <button
+            type="button"
+            onClick={() => {
+              setShowEmojiPicker(false);
+              setShowMediaPicker((v) => !v);
+            }}
+            disabled={disabled}
+            className={`inline-flex h-6 w-6 items-center justify-center rounded transition-colors ${
+              showMediaPicker
+                ? "bg-primary text-primary-foreground"
+                : "text-muted-foreground hover:bg-muted hover:text-foreground"
+            }`}
+            title="GIFs, Emojis & Stickers (Ctrl+Shift+G / Ctrl+Shift+E)"
+          >
+            <Film className="size-3.5" />
+          </button>
+          {/* Unicode Emoji Picker Button */}
+          <button
+            type="button"
+            onClick={() => {
+              setShowMediaPicker(false);
+              setShowEmojiPicker((v) => !v);
+            }}
+            disabled={disabled}
+            className={`inline-flex h-6 w-6 items-center justify-center rounded transition-colors ${
+              showEmojiPicker
+                ? "bg-primary text-primary-foreground"
+                : "text-muted-foreground hover:bg-muted hover:text-foreground"
+            }`}
+            title="Unicode emojis (Ctrl+E)"
+          >
+            <SmilePlus className="size-3.5" />
+          </button>
         </div>
       </div>
-      <div className="min-h-[64px] max-h-[200px] overflow-auto px-3 py-1.5 flex-1 relative">
+      <div className="min-h-[36px] max-h-[160px] overflow-auto px-2 py-1 flex-1 relative">
         <textarea
           ref={textareaRef}
           value={markdown}
@@ -229,11 +354,47 @@ export default function RichMessageInput({
             setShowSlashMenu(e.target.value.trimStart().startsWith("/"));
           }}
           onKeyDown={(e) => {
+            // Close pickers with Escape
+            if (e.key === "Escape") {
+              if (showMediaPicker || showEmojiPicker) {
+                e.preventDefault();
+                setShowMediaPicker(false);
+                setShowEmojiPicker(false);
+                return;
+              }
+              setShowSlashMenu(false);
+              return;
+            }
+
+            // Keyboard shortcuts to open pickers (only when none are open)
+            const isMac = navigator.platform?.toLowerCase().includes("mac");
+            const modKey = isMac ? e.metaKey : e.ctrlKey;
+            if (!showMediaPicker && !showEmojiPicker && !showSlashMenu) {
+              if (modKey && e.shiftKey && e.key.toLowerCase() === "e") {
+                e.preventDefault();
+                setMediaPickerInitialTab("emoji");
+                setShowEmojiPicker(false);
+                setShowMediaPicker(true);
+                return;
+              }
+              if (modKey && e.shiftKey && e.key.toLowerCase() === "g") {
+                e.preventDefault();
+                setMediaPickerInitialTab("gif");
+                setShowEmojiPicker(false);
+                setShowMediaPicker(true);
+                return;
+              }
+              if (modKey && !e.shiftKey && e.key.toLowerCase() === "e") {
+                e.preventDefault();
+                setShowMediaPicker(false);
+                setShowEmojiPicker(true);
+                return;
+              }
+            }
+
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
               void submitCurrent();
-            } else if (e.key === "Escape") {
-              setShowSlashMenu(false);
             } else if (e.key === "Backspace" || e.key === "Delete") {
               const target = e.target as HTMLTextAreaElement;
               setShowSlashMenu(target.value.trimStart().startsWith("/"));
@@ -241,10 +402,10 @@ export default function RichMessageInput({
           }}
           placeholder={placeholder}
           disabled={disabled}
-          className="w-full h-full min-h-[64px] max-h-[200px] resize-none bg-transparent outline-none text-[14px] text-foreground"
+          className="w-full h-full min-h-[36px] max-h-[160px] resize-none bg-transparent outline-none text-[14px] text-foreground"
         />
       </div>
-      
+
       {/* Link Dialog */}
       <LinkDialog
         isOpen={showLinkDialog}
@@ -259,17 +420,17 @@ export default function RichMessageInput({
         onConfirm={handleTableConfirm}
       />
       
-      <div className="flex justify-end gap-2 px-2 pb-2">
+      <div className="flex justify-end gap-1.5 px-1.5 pb-1.5">
         <button
           type="button"
           onClick={() => {
             void replaceWithMarkdown("");
           }}
           disabled={!markdown.trim() || disabled}
-          className="h-10 w-10 inline-flex items-center justify-center rounded-md border border-border text-muted-foreground hover:bg-muted hover:text-foreground transition-colors disabled:opacity-50"
+          className="h-8 w-8 inline-flex items-center justify-center rounded border border-border text-muted-foreground hover:bg-muted hover:text-foreground transition-colors disabled:opacity-50"
           title="Clear input"
         >
-          <Trash2 className="size-4" />
+          <Trash2 className="size-3.5" />
         </button>
         <button
           type="button"
@@ -277,9 +438,9 @@ export default function RichMessageInput({
             void submitCurrent();
           }}
           disabled={!markdown.trim() || disabled || submitDisabled}
-          className="h-10 w-10 inline-flex items-center justify-center rounded-md bg-foreground text-background hover:opacity-90 transition-opacity disabled:opacity-50"
+          className="h-8 w-8 inline-flex items-center justify-center rounded bg-primary text-primary-foreground hover:opacity-90 transition-opacity disabled:opacity-50"
         >
-          <Send className="size-4" />
+          <Send className="size-3.5" />
         </button>
       </div>
       </div>

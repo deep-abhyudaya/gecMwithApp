@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Support Tickets CampusOS",
+  title: "Support Tickets gecX",
   description: "Submit a support ticket or check your ticket status. No login required.",
 };
 
@@ -12,8 +12,8 @@ export default function TicketsLayout({ children }: { children: React.ReactNode 
       <header className="border-b border-border bg-card">
         <div className="max-w-5xl mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex flex-col leading-tight">
-            <span className="font-semibold text-[15px] tracking-tight">CampusOS</span>
-            <span className="text-[11px] text-muted-foreground">School Management System</span>
+            <span className="font-semibold text-[15px] tracking-tight">gecX</span>
+            <span className="text-[11px] text-muted-foreground"></span>
           </div>
           <a
             href="/"

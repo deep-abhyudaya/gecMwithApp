@@ -3,6 +3,7 @@
 import prisma from "@/lib/prisma";
 import { auth } from "@clerk/nextjs/server";
 import { revalidatePath } from "next/cache";
+import { awardGecXForAttendance } from "./gecx.actions";
 
 export type BulkAttendanceEntry = {
   studentId: string;
@@ -47,6 +48,17 @@ export async function bulkMarkAttendance(
         })),
       }),
     ]);
+
+    // Award gecX for attendance (async, don't block attendance saving)
+    for (const entry of entries) {
+      if (entry.present) {
+        try {
+          await awardGecXForAttendance(entry.studentId, attendanceDate, true);
+        } catch (error) {
+          console.error("Failed to award gecX for attendance:", error);
+        }
+      }
+    }
 
     revalidatePath("/list/attendance");
     revalidatePath("/admin");

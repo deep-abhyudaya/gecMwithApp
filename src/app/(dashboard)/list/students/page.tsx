@@ -89,7 +89,7 @@ const StudentListPage = async ({
                       ? "bg-red-500 text-white"
                       : unreadStudentBadges[item.id].tone === "yellow"
                         ? "bg-amber-500 text-black"
-                        : "bg-blue-500 text-white"
+                        : "bg-primary text-primary-foreground"
                   }`}
                 >
                   {unreadStudentBadges[item.id].count > 99 ? "99+" : unreadStudentBadges[item.id].count}

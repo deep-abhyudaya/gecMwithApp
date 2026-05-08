@@ -2,17 +2,19 @@
 
 import { useState, useRef, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { useUser } from "@clerk/nextjs";
 import { sendMessage, toggleReaction, createTicket, closeTicket, deleteTicketMessage } from "@/actions/support.actions";
 import { markSupportTicketMessagesAsRead } from "@/actions/notification.actions";
 import { Send, CheckCircle, PlusCircle, User as UserIcon, X, SmilePlus, Smile, Trash2, Calendar, AlertCircle, BookOpen, Clock, HelpCircle } from "lucide-react";
-import EmojiPicker, { Theme } from "emoji-picker-react";
+import EmojiPicker from "emoji-picker-react";
 import { useTheme } from "next-themes";
 import RichMessageInput from "@/components/messages/RichMessageInput";
 import MarkdownMessage from "@/components/messages/MarkdownMessage";
+import { ChatMessageHeader } from "@/components/messages/ChatMessageHeader";
 import {
   ResizableHandle,
   ResizablePanel,
-  ResizablePanelGroup,
+  ResizablePanelGroup,  
 } from "@/components/ui/resizable";
 
 type Ticket = any; // simplified for now
@@ -44,17 +46,16 @@ export default function SupportChatClient({
   const router = useRouter();
   const searchParams = useSearchParams();
   const { theme } = useTheme();
+  const { user } = useUser();
   const [isCreating, setIsCreating] = useState(false);
   const [newCategory, setNewCategory] = useState("other");
   const [newSubject, setNewSubject] = useState("");
   const [newDesc, setNewDesc] = useState("");
-  const [emojiToken, setEmojiToken] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [reactionMessageId, setReactionMessageId] = useState<number | null>(null);
-  const [showInputEmoji, setShowInputEmoji] = useState(false);
-  const inputEmojiRef = useRef<HTMLDivElement>(null);
   const reactionEmojiRef = useRef<HTMLDivElement>(null);
   const [replyToMessage, setReplyToMessage] = useState<any | null>(null);
+  const [localMessages, setLocalMessages] = useState<any[]>(selectedTicketData?.messages ?? []);
 
   const onLayout = (sizes: number[]) => {
     document.cookie = `react-resizable-panels:support-layout=${JSON.stringify(sizes)}; path=/; max-age=31536000`;
@@ -62,9 +63,6 @@ export default function SupportChatClient({
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
-      if (inputEmojiRef.current && !inputEmojiRef.current.contains(event.target as Node)) {
-        setShowInputEmoji(false);
-      }
       if (reactionEmojiRef.current && !reactionEmojiRef.current.contains(event.target as Node)) {
         setReactionMessageId(null);
       }
@@ -75,7 +73,12 @@ export default function SupportChatClient({
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [selectedTicketData?.messages]);
+  }, [localMessages]);
+
+  // Update local messages when selected ticket changes
+  useEffect(() => {
+    setLocalMessages(selectedTicketData?.messages ?? []);
+  }, [selectedTicketData?.id]);
 
   useEffect(() => {
     if (selectedTicketData?.id) {
@@ -100,8 +103,47 @@ export default function SupportChatClient({
 
   const handleSendMessage = async (content: string) => {
     if (!content.trim() || !selectedTicketData) return;
-    await sendMessage(selectedTicketData.id, content, replyToMessage?.id);
+
+    const tempId = `pending-${Date.now()}`;
+    const capturedReply = replyToMessage;
+    const replyTo = capturedReply
+      ? { id: capturedReply.id, content: capturedReply.content, senderId: capturedReply.senderId }
+      : null;
+
+    const optimistic: any = {
+      id: tempId,
+      content,
+      senderId: currentUserId,
+      senderRole: currentUserRole,
+      ticketId: selectedTicketData.id,
+      createdAt: new Date().toISOString(),
+      messageType: "TEXT",
+      commandKey: null,
+      commandLabel: null,
+      commandUrl: null,
+      isRead: false,
+      replyToId: capturedReply?.id ?? null,
+      replyTo,
+      reactions: [],
+    };
+
+    // Add optimistic message immediately
+    setLocalMessages((prev) => [...prev, optimistic]);
     setReplyToMessage(null);
+
+    try {
+      const saved = await sendMessage(selectedTicketData.id, content, capturedReply?.id);
+      // Replace optimistic entry with real DB row
+      setLocalMessages((prev) =>
+        prev.map((m) =>
+          m.id === tempId ? { ...saved, reactions: [], replyTo } : m
+        )
+      );
+    } catch (error) {
+      // Remove failed optimistic message
+      setLocalMessages((prev) => prev.filter((m) => m.id !== tempId));
+      console.error("Failed to send message:", error);
+    }
   };
 
   const handleReaction = async (messageId: number, emoji: string) => {
@@ -143,7 +185,7 @@ export default function SupportChatClient({
         defaultSize={defaultLayout?.[0] ?? 33}
         minSize={20}
         maxSize={45}
-        className={`flex-col ${shadowBorder} z-10 bg-[#fafafa] dark:bg-[#111113] ${(selectedTicketData || isCreating) ? 'hidden md:flex' : 'flex'} h-full`}
+        className={`flex-col ${shadowBorder} z-10 bg-background ${(selectedTicketData || isCreating) ? 'hidden md:flex' : 'flex'} h-full`}
       >
         <div className="p-4 border-b border-border flex justify-between items-center bg-background shrink-0">
           <h2 className="text-[16px] font-semibold tracking-[-0.32px] text-foreground">Tickets</h2>
@@ -257,7 +299,7 @@ export default function SupportChatClient({
                     placeholder="Please detail your issue..."
                   />
                 </div>
-                <button type="submit" className="w-full h-10 bg-foreground text-background rounded-md text-[14px] font-medium hover:opacity-90 transition-opacity">
+                <button type="submit" className="w-full h-10 bg-primary text-primary-foreground rounded-md text-[14px] font-medium hover:opacity-90 transition-opacity">
                   Submit Ticket
                 </button>
               </form>
@@ -295,8 +337,8 @@ export default function SupportChatClient({
             </div>
 
             {/* CHAT MESSAGES */}
-            <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-[#fafafa] dark:bg-[#111113] flex flex-col no-scrollbar">
-              {selectedTicketData.messages.map((msg: TicketMessage) => {
+            <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-background flex flex-col no-scrollbar">
+              {localMessages.map((msg: TicketMessage) => {
                 const isMe = msg.senderId === currentUserId;
                 const isAdmin = msg.senderRole === "admin";
 
@@ -307,92 +349,92 @@ export default function SupportChatClient({
                 }, {});
 
                 return (
-                  <div key={msg.id} className={`flex gap-3 ${isMe ? "flex-row-reverse self-end" : "flex-row self-start"} w-full max-w-[80%]`}>
-                    {!isMe && (
-                      <div className={`size-8 rounded-full flex items-center justify-center shrink-0 ${isAdmin ? "bg-foreground" : "bg-muted"}`}>
-                        <UserIcon className={`size-4 ${isAdmin ? "text-background" : "text-muted-foreground"}`} />
+                  <div
+                    key={msg.id}
+                    className="group relative flex w-full hover:bg-muted/30 transition-colors px-4 py-2"
+                    onDoubleClick={() => setReplyToMessage(msg)}
+                  >
+                    <div className="absolute right-4 -top-3 hidden group-hover:flex items-center p-0.5 rounded-md bg-card shadow-sm border border-border/50 z-10">
+                      {AVAILABLE_EMOJIS.map((emoji) => (
+                        <button
+                          key={emoji}
+                          onClick={() => handleReaction(msg.id, emoji)}
+                          className="w-7 h-7 flex items-center justify-center text-[14px] hover:bg-muted rounded-sm transition-colors active:scale-90"
+                        >
+                          {emoji}
+                        </button>
+                      ))}
+                      <div className="w-[1px] h-4 bg-border mx-1" />
+                      <button
+                        onClick={() => setReactionMessageId(reactionMessageId === msg.id ? null : msg.id)}
+                        className="w-7 h-7 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted rounded-sm transition-colors"
+                      >
+                        <SmilePlus className="w-4 h-4" />
+                      </button>
+                      {(isMe || currentUserRole === "admin") && (
+                        <button
+                          onClick={() => handleDeleteMessage(msg.id)}
+                          className="w-7 h-7 flex items-center justify-center text-red-500 hover:bg-red-50 rounded-sm transition-colors"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+
+                    {reactionMessageId === msg.id && (
+                      <div ref={reactionEmojiRef} className="absolute z-50 right-4 top-8 shadow-xl">
+                        <EmojiPicker
+                          onEmojiClick={(emojiData) => handleReaction(msg.id, emojiData.emoji)}
+                          width={280}
+                          height={350}
+                          theme={theme === 'dark' ? "dark" : "light"}
+                        />
                       </div>
                     )}
-                    <div className={`flex-1 flex flex-col ${isMe ? "items-end" : "items-start"} min-w-0`}>
-                      <div
-                        onDoubleClick={() => setReplyToMessage(msg)}
-                        className={`group relative p-3.5 rounded-xl text-[14px] cursor-pointer ${shadowCard} ${isMe
-                          ? "bg-foreground text-background rounded-tr-sm"
-                          : "bg-card text-card-foreground rounded-tl-sm"
-                        }`}
-                      >
+
+                    <ChatMessageHeader
+                      username={isAdmin ? "Admin" : getCreatorName(selectedTicketData) || msg.senderId}
+                      avatar={(msg as any).senderAvatar || (isMe ? user?.imageUrl : undefined)}
+                      customAvatar={(msg as any).senderCustomAvatar || undefined}
+                      equippedColor={(msg as any).senderColor}
+                      equippedNameplate={(msg as any).senderNameplate}
+                      karmaPoints={(msg as any).senderKarma || 0}
+                      roleBadge={isAdmin ? "admin" : msg.senderRole}
+                      timestamp={new Date(msg.createdAt).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}
+                    >
+                      <div className="flex flex-col gap-1 w-full mt-1">
                         {msg.replyTo && (
-                          <div className="mb-2 px-2 py-1 rounded-md border border-border/40 bg-background/40 text-[11px] text-muted-foreground">
-                            Replying to: {msg.replyTo.content}
+                          <div className="mb-1 flex items-center gap-2 text-xs text-muted-foreground">
+                            <div className="w-6 h-[1px] bg-border/60" />
+                            <span className="truncate max-w-[200px]">Replying to: {msg.replyTo.content}</span>
                           </div>
                         )}
                         <p className="whitespace-pre-wrap">{msg.content}</p>
 
-                        {/* Hover Reaction Bar */}
-                        <div className={`absolute top-[-16px] ${isMe ? "right-0" : "left-0"} flex items-center p-1 rounded-full bg-card shadow-sm border border-border opacity-0 group-hover:opacity-100 transition-opacity z-10 gap-1`}>
-                          {AVAILABLE_EMOJIS.map(emoji => (
-                            <button
-                              key={emoji}
-                              onClick={() => handleReaction(msg.id, emoji)}
-                              className="w-7 h-7 flex items-center justify-center text-[14px] hover:bg-muted rounded-full transition-colors"
-                            >
-                              {emoji}
-                            </button>
-                          ))}
-                          <div className="w-[1px] h-4 bg-border mx-0.5" />
-                          <button
-                            onClick={() => setReactionMessageId(reactionMessageId === msg.id ? null : msg.id)}
-                            className="w-7 h-7 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted rounded-full transition-colors"
-                          >
-                            <SmilePlus className="size-4" />
-                          </button>
-                          {(isMe || currentUserRole === "admin") && (
-                            <button
-                              onClick={() => handleDeleteMessage(msg.id)}
-                              className="w-7 h-7 flex items-center justify-center text-red-500 hover:bg-red-50 rounded-full transition-colors"
-                            >
-                              <Trash2 className="size-4" />
-                            </button>
-                          )}
-                        </div>
-                        {reactionMessageId === msg.id && (
-                          <div ref={reactionEmojiRef} className={`absolute z-50 ${isMe ? "right-0" : "left-0"} top-6`}>
-                            <EmojiPicker
-                              onEmojiClick={(emojiData) => handleReaction(msg.id, emojiData.emoji)}
-                              width={280}
-                              height={350}
-                              theme={theme === 'dark' ? Theme.DARK : Theme.LIGHT}
-                            />
+                        {/* Active Reactions */}
+                        {Object.keys(reactionsByEmoji).length > 0 && (
+                          <div className="flex flex-wrap gap-1 mt-1.5">
+                            {Object.entries(reactionsByEmoji).map(([emoji, reacts]: [string, any]) => {
+                              const hasReacted = reacts.some((r: any) => r.userId === currentUserId);
+                              return (
+                                <button
+                                  key={emoji}
+                                  onClick={() => handleReaction(msg.id, emoji)}
+                                  className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs border transition-all duration-200 ${
+                                    hasReacted
+                                      ? "bg-blue-500/10 border-blue-500/30 text-blue-500"
+                                      : "bg-background border-border text-muted-foreground hover:bg-muted"
+                                  }`}
+                                >
+                                  <span>{emoji}</span>
+                                  <span className="font-semibold">{reacts.length}</span>
+                                </button>
+                              );
+                            })}
                           </div>
                         )}
                       </div>
-
-                      {/* Active Reactions */}
-                      {Object.keys(reactionsByEmoji).length > 0 && (
-                        <div className={`flex flex-wrap gap-1 mt-1 ${isMe ? "justify-end" : "justify-start"}`}>
-                          {Object.entries(reactionsByEmoji).map(([emoji, reacts]: [string, any]) => {
-                            const hasReacted = reacts.some((r: any) => r.userId === currentUserId);
-                            return (
-                              <button
-                                key={emoji}
-                                onClick={() => handleReaction(msg.id, emoji)}
-                                className={`flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[11px] border ${hasReacted
-                                    ? "bg-blue-500/10 border-blue-500/30 text-blue-500"
-                                    : "bg-card border-border text-muted-foreground hover:bg-muted"
-                                  }`}
-                              >
-                                <span>{emoji}</span>
-                                <span className="font-medium">{reacts.length}</span>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      )}
-
-                      <div className="mt-1.5 text-[11px] text-muted-foreground font-mono px-1">
-                        {isAdmin ? "Admin" : msg.senderRole}  {new Date(msg.createdAt).toLocaleTimeString("en-US", { hour: '2-digit', minute: '2-digit' })}
-                      </div>
-                    </div>
+                    </ChatMessageHeader>
                   </div>
                 );
               })}
@@ -401,17 +443,7 @@ export default function SupportChatClient({
 
             {/* CHAT INPUT */}
             {selectedTicketData.status !== "CLOSED" ? (
-              <div className="p-4 bg-background border-t border-border shrink-0 relative">
-                {showInputEmoji && (
-                  <div ref={inputEmojiRef} className="absolute bottom-full mb-2 right-4 z-50">
-                    <EmojiPicker
-                      onEmojiClick={(emojiData) => setEmojiToken(emojiData.emoji)}
-                      width={300}
-                      height={400}
-                      theme={theme === 'dark' ? Theme.DARK : Theme.LIGHT}
-                    />
-                  </div>
-                )}
+              <div className="p-2 bg-background border-t border-border shrink-0 relative">
                 {replyToMessage && (
                   <div className="mb-2 px-3 py-2 rounded-md border border-border bg-muted/40 text-[12px] text-muted-foreground flex items-center justify-between gap-2">
                     <span className="truncate">Replying to: {replyToMessage.content}</span>
@@ -424,21 +456,10 @@ export default function SupportChatClient({
                     </button>
                   </div>
                 )}
-                <div className="flex gap-2 relative mb-2 justify-end">
-                  <button
-                    type="button"
-                    onClick={() => setShowInputEmoji(!showInputEmoji)}
-                    className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-border bg-background text-muted-foreground hover:text-foreground transition-colors"
-                  >
-                    <Smile className="size-5" />
-                  </button>
-                </div>
                 <RichMessageInput
                   placeholder="Type a message..."
                   onSubmit={handleSendMessage}
                   disabled={selectedTicketData.status === "CLOSED"}
-                  appendTextToken={emojiToken}
-                  onTokenConsumed={() => setEmojiToken(null)}
                   onSlashCommands={[
                     {
                       id: "close",
@@ -456,13 +477,13 @@ export default function SupportChatClient({
                 />
               </div>
             ) : (
-              <div className="p-4 bg-[#fafafa] dark:bg-[#111113] border-t border-border shrink-0 text-center">
+              <div className="p-4 bg-background border-t border-border shrink-0 text-center">
                 <p className="text-[13px] text-muted-foreground">This ticket has been closed.</p>
               </div>
             )}
           </div>
         ) : (
-          <div className="flex-1 flex items-center justify-center bg-[#fafafa] dark:bg-[#111113]">
+          <div className="flex-1 flex items-center justify-center bg-background">
             <p className="text-[14px] text-muted-foreground">Select a ticket from the sidebar to view the conversation.</p>
           </div>
         )}

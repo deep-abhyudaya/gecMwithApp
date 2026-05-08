@@ -140,7 +140,7 @@ const CustomTick = ({
   );
 };
 
-const AttendanceChart = ({ data }: { data: DataItem[] }) => {
+const AttendanceChart = ({ data }: { data?: DataItem[] }) => {
   const { resolvedTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
@@ -150,12 +150,14 @@ const AttendanceChart = ({ data }: { data: DataItem[] }) => {
   const gridColor = isDark ? "#262626" : "#e5e5e5";
   const yTickColor = isDark ? "#737373" : "#737373";
 
+  const safeData = data || [];
+
   // Find today's full name label (e.g. "Sun 4/19")
-  const todayItem = data.find((d) => d.isToday);
+  const todayItem = safeData.find((d) => d.isToday);
   const todayName = todayItem?.name ?? "";
 
   // Calculate dynamic bar size and tick interval based on data length
-  const dataLength = data.length;
+  const dataLength = safeData.length;
   let barSize = 16;
   let tickInterval = 0;
   let xAxisHeight = 52;
@@ -181,7 +183,7 @@ const AttendanceChart = ({ data }: { data: DataItem[] }) => {
   return (
     <ResponsiveContainer width="100%" height="100%" minHeight={240}>
       <BarChart
-        data={data}
+        data={safeData}
         barSize={barSize}
         barGap={2}
         margin={{ top: 8, right: 8, left: 60, bottom: xAxisHeight }}
@@ -194,7 +196,7 @@ const AttendanceChart = ({ data }: { data: DataItem[] }) => {
           height={xAxisHeight}
           interval={tickInterval}
           tick={(props) => (
-            <CustomTick {...props} isDark={isDark} todayName={todayName} data={data} />
+            <CustomTick {...props} isDark={isDark} todayName={todayName} data={safeData} />
           )}
         />
         <YAxis

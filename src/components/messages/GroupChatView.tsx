@@ -1,16 +1,24 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
-import { User as UserIcon, SmilePlus, Hash, Users, Info, MoreVertical, Trash2 } from "lucide-react";
-import EmojiPicker, { Theme } from "emoji-picker-react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import { User as UserIcon, SmilePlus, Smile, Hash, Users, Info, MoreVertical, Trash2 } from "lucide-react";
+import EmojiPicker from "./LazyEmojiPicker";
 import { useTheme } from "next-themes";
 import { sendGroupMessage, sendGroupPoll, sendGroupCommandMessage, toggleGroupMessageReaction, deleteGroupMessage } from "@/actions/group.actions";
 import { markGroupMessagesAsRead } from "@/actions/notification.actions";
+import { getAllUserServerEmojisAndStickers } from "@/actions/emoji-sticker.actions";
 import { useRouter } from "next/navigation";
+import { useUser } from "@clerk/nextjs";
+import { useAbly, type ChatEvent } from "@/hooks/useAbly";
+import Link from "next/link";
+import { getKarmaTierColor } from "@/lib/karma-tiers";
 import PollMessage from "./PollMessage";
 import { defaultIcons } from "./SlashCommandMenu";
 import RichMessageInput from "./RichMessageInput";
 import MarkdownMessage from "./MarkdownMessage";
+import EmojiReaction from "./EmojiReaction";
+import { buildEmojiMap } from "./EmojiRenderer";
+import { ChatMessageHeader } from "./ChatMessageHeader";
 import {
   Tooltip,
   TooltipContent,
@@ -33,28 +41,30 @@ const AVAILABLE_EMOJIS = ["👍", "❤️", "😂", "😮", "😢"];
 interface GroupChatViewProps {
   group: any;
   currentUserId: string;
+  currentUserProfile?: any;
 }
 
-export default function GroupChatView({ group, currentUserId }: GroupChatViewProps) {
-  const [emojiToken, setEmojiToken] = useState<string | null>(null);
+export default function GroupChatView({ group, currentUserId, currentUserProfile }: GroupChatViewProps) {
   const [isSending, setIsSending] = useState(false);
   const [reactionMessageId, setReactionMessageId] = useState<number | null>(null);
-  const [showMembers, setShowMembers] = useState(false);
+  const [reactionTab, setReactionTab] = useState<'unicode' | 'custom'>('unicode');
+  const router = useRouter();
   const [isNearBottom, setIsNearBottom] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
   const reactionEmojiRef = useRef<HTMLDivElement>(null);
-  const [showInputEmoji, setShowInputEmoji] = useState(false);
-  const inputEmojiRef = useRef<HTMLDivElement>(null);
+  const { theme } = useTheme();
+  const { user } = useUser();
+  const [showMembers, setShowMembers] = useState(false);
   const [showPollDialog, setShowPollDialog] = useState(false);
   const [pollQuestion, setPollQuestion] = useState("");
   const [pollOptions, setPollOptions] = useState<string[]>(["", ""]);
   const [isSendingPoll, setIsSendingPoll] = useState(false);
   const [replyToMessage, setReplyToMessage] = useState<any | null>(null);
-  const { theme } = useTheme();
-  const router = useRouter();
 
   const [localMessages, setLocalMessages] = useState<any[]>(group.messages ?? []);
+  const [serverEmojis, setServerEmojis] = useState<any[]>([]);
+  const [serverStickers, setServerStickers] = useState<any[]>([]);
   const lastMsgTimeRef = useRef<string>(
     group.messages?.length
       ? new Date((group.messages as any[]).at(-1).createdAt).toISOString()
@@ -64,13 +74,64 @@ export default function GroupChatView({ group, currentUserId }: GroupChatViewPro
   const me = group.members?.find((m: any) => m.userId === currentUserId);
   const isMuted = me?.isMuted || false;
 
-  // Mark group as read — no router.refresh (sidebar handled by its own poller)
+  // Fetch server emojis/stickers on mount
+  useEffect(() => {
+    getAllUserServerEmojisAndStickers()
+      .then(({ emojis, stickers }) => {
+        setServerEmojis(emojis);
+        setServerStickers(stickers);
+      })
+      .catch(() => {});
+  }, []);
+
+  const emojiMap = useMemo(() => buildEmojiMap(serverEmojis, []), [serverEmojis]);
+
+  // Mark group as read
   useEffect(() => {
     markGroupMessagesAsRead(group.id);
   }, [group.id]);
 
-  // Poll for new messages from other group members every 3 seconds
+  // Ably realtime integration for groups
+  const ablyChannelName = useMemo(() => `group:${group.id}`, [group.id]);
+  const { isConnected, subscribe } = useAbly(ablyChannelName);
+
   useEffect(() => {
+    const unsubscribe = subscribe((event: ChatEvent) => {
+      if (event.type === "message:new") {
+        const msg = event.message;
+        setLocalMessages((prev) => {
+          const exists = prev.some((m: any) => String(m.id) === String(msg.id));
+          if (exists) return prev;
+          lastMsgTimeRef.current = new Date(msg.createdAt).toISOString();
+          return [...prev, msg];
+        });
+      } else if (event.type === "message:delete") {
+        setLocalMessages((prev) => prev.filter((m: any) => String(m.id) !== String(event.messageId)));
+      } else if (event.type === "reaction:add") {
+        setLocalMessages((prev) =>
+          prev.map((m: any) => {
+            if (String(m.id) !== String(event.messageId)) return m;
+            const reactions = m.reactions || [];
+            const exists = reactions.some((r: any) => r.userId === event.userId && r.emoji === event.emoji);
+            if (exists) return m;
+            return { ...m, reactions: [...reactions, { id: -Date.now(), messageId: event.messageId, userId: event.userId, emoji: event.emoji }] };
+          })
+        );
+      } else if (event.type === "reaction:remove") {
+        setLocalMessages((prev) =>
+          prev.map((m: any) => {
+            if (String(m.id) !== String(event.messageId)) return m;
+            return { ...m, reactions: (m.reactions || []).filter((r: any) => !(r.userId === event.userId && r.emoji === event.emoji)) };
+          })
+        );
+      }
+    });
+    return unsubscribe;
+  }, [ablyChannelName, subscribe]);
+
+  // Poll for new messages from other group members every 3 seconds (fallback when Ably not connected)
+  useEffect(() => {
+    if (isConnected) return;
     let cancelled = false;
 
     const poll = async () => {
@@ -100,7 +161,7 @@ export default function GroupChatView({ group, currentUserId }: GroupChatViewPro
       cancelled = true;
       clearInterval(interval);
     };
-  }, [group.id]);
+  }, [group.id, isConnected]);
 
   const updateIsNearBottom = useCallback(() => {
     const el = scrollerRef.current;
@@ -132,9 +193,6 @@ export default function GroupChatView({ group, currentUserId }: GroupChatViewPro
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
-      if (inputEmojiRef.current && !inputEmojiRef.current.contains(event.target as Node)) {
-        setShowInputEmoji(false);
-      }
       if (reactionEmojiRef.current && !reactionEmojiRef.current.contains(event.target as Node)) {
         setReactionMessageId(null);
       }
@@ -237,6 +295,18 @@ export default function GroupChatView({ group, currentUserId }: GroupChatViewPro
 
   return (
     <div className="flex flex-col h-full bg-background relative overflow-hidden">
+      {/* GROUP BANNER */}
+      {group.bannerUrl && (
+        <div className="shrink-0 w-full h-20 relative overflow-hidden">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={group.bannerUrl}
+            alt="Group banner"
+            className="w-full h-full object-cover"
+          />
+          <div className="absolute inset-0 bg-gradient-to-b from-transparent to-background/60" />
+        </div>
+      )}
       {/* HEADER */}
       <div className="px-4 py-3 md:px-6 md:py-4 border-b border-border flex justify-between items-center bg-background z-10 shrink-0">
         <div className="flex items-center gap-3">
@@ -276,7 +346,7 @@ export default function GroupChatView({ group, currentUserId }: GroupChatViewPro
       <div
         ref={scrollerRef}
         onScroll={updateIsNearBottom}
-        className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6 bg-[#fafafa] dark:bg-[#111113] no-scrollbar"
+        className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6 bg-background no-scrollbar"
       >
         {localMessages.map((msg: any) => {
           const isMe = msg.senderId === currentUserId;
@@ -287,35 +357,122 @@ export default function GroupChatView({ group, currentUserId }: GroupChatViewPro
           }, {});
 
           return (
-            <div key={msg.id} className={`flex w-full ${isMe ? "justify-end" : "justify-start"}`}>
-            <div className={`flex gap-3 ${isMe ? "flex-row-reverse" : "flex-row"} max-w-[85%]`}>
-              {!isMe && (
-                <div className="size-8 rounded-lg bg-muted flex items-center justify-center shrink-0 border border-border/50 mt-1">
-                  <span className="text-[10px] font-bold text-muted-foreground">
-                    {msg.senderUsername?.substring(0, 2).toUpperCase()}
-                  </span>
+            <div
+              key={msg.id}
+              className="group relative flex w-full hover:bg-muted/30 transition-colors px-4 py-2"
+              onDoubleClick={() => setReplyToMessage(msg)}
+            >
+              <div className="absolute right-4 -top-3 hidden group-hover:flex items-center p-0.5 rounded-md bg-card shadow-sm border border-border/50 z-10">
+                {AVAILABLE_EMOJIS.map((emoji) => (
+                  <button
+                    key={emoji}
+                    onClick={() => handleReaction(msg.id, emoji)}
+                    className="w-7 h-7 flex items-center justify-center text-[14px] hover:bg-muted rounded-sm transition-colors active:scale-90"
+                  >
+                    {emoji}
+                  </button>
+                ))}
+                <div className="w-[1px] h-4 bg-border mx-1" />
+                <button
+                  onClick={() => setReactionMessageId(reactionMessageId === msg.id ? null : msg.id)}
+                  className="w-7 h-7 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted rounded-sm transition-colors"
+                >
+                  <SmilePlus className="w-4 h-4" />
+                </button>
+                {(msg.senderId === currentUserId || group.members?.find((m: any) => m.userId === currentUserId)?.isOwner) && (
+                  <button
+                    onClick={() => handleDeleteMessage(msg.id)}
+                    className="w-7 h-7 flex items-center justify-center text-red-500 hover:bg-red-50 rounded-sm transition-colors"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+
+              {reactionMessageId === msg.id && (
+                <div ref={reactionEmojiRef} className="absolute z-50 right-4 top-8 shadow-xl">
+                  <div className="bg-background rounded-lg border border-border shadow-2xl overflow-hidden" style={{ width: 320 }}>
+                    {/* Tabs */}
+                    <div className="flex border-b border-border">
+                      <button
+                        onClick={() => setReactionTab('unicode')}
+                        className={`flex-1 py-2 text-xs font-medium transition-colors ${
+                          reactionTab === 'unicode' ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent/50'
+                        }`}
+                      >
+                        Standard
+                      </button>
+                      {serverEmojis.length > 0 && (
+                        <button
+                          onClick={() => setReactionTab('custom')}
+                          className={`flex-1 py-2 text-xs font-medium transition-colors ${
+                            reactionTab === 'custom' ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent/50'
+                          }`}
+                        >
+                          Server ({serverEmojis.length})
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Unicode Emojis */}
+                    {reactionTab === 'unicode' && (
+                      <EmojiPicker
+                        onEmojiClick={(emojiData) => handleReaction(msg.id, emojiData.emoji)}
+                        width={320}
+                        height={300}
+                        theme={theme === 'dark' ? "dark" : "light"}
+                      />
+                    )}
+
+                    {/* Custom Server Emojis */}
+                    {reactionTab === 'custom' && (
+                      <div className="p-3 h-[300px] overflow-y-auto">
+                        {serverEmojis.length === 0 ? (
+                          <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
+                            <Smile className="w-8 h-8 mb-2 opacity-40" />
+                            <p className="text-xs text-center">No custom emojis</p>
+                          </div>
+                        ) : (
+                          <div className="grid grid-cols-6 gap-1">
+                            {serverEmojis.map((emoji) => (
+                              <button
+                                key={emoji.id}
+                                onClick={() => handleReaction(msg.id, `:${emoji.name}:`)}
+                                className="aspect-square rounded hover:bg-accent p-1 transition-colors flex items-center justify-center"
+                                title={emoji.name}
+                              >
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img
+                                  src={emoji.imageUrl}
+                                  alt={emoji.name}
+                                  className="w-6 h-6 object-contain"
+                                />
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
-              <div className={`flex-1 flex flex-col ${isMe ? "items-end" : "items-start"} min-w-0`}>
-                {!isMe && (
-                  <span className="text-[11px] font-medium text-muted-foreground mb-1 px-1 flex items-center gap-2">
-                    {msg.senderUsername}
-                    <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-muted border border-border/50 font-mono uppercase tracking-tighter">
-                      {msg.senderRole}
-                    </span>
-                  </span>
-                )}
 
-                <div
-                  onDoubleClick={() => setReplyToMessage(msg)}
-                  className={`group relative p-3 rounded-2xl text-[14px] leading-relaxed shadow-sm transition-all duration-200 cursor-pointer ${isMe
-                  ? "bg-foreground text-background rounded-tr-sm"
-                  : "bg-card text-card-foreground border border-border/50 rounded-tl-sm"
-                  }`}
-                >
+              <ChatMessageHeader
+                username={msg.senderUsername || ""}
+                userId={msg.senderId}
+                avatar={(msg as any).senderAvatar || (isMe ? user?.imageUrl : undefined)}
+                customAvatar={(msg as any).senderCustomAvatar || (isMe ? currentUserProfile?.customAvatar : undefined)}
+                equippedColor={(msg as any).senderColor || (isMe ? currentUserProfile?.equippedUsernameColor : undefined)}
+                equippedNameplate={(msg as any).senderNameplate || (isMe ? currentUserProfile?.equippedNameplate : undefined)}
+                karmaPoints={(msg as any).senderKarma || (isMe ? currentUserProfile?.karmaPoints : 0)}
+                roleBadge={msg.senderRole && msg.senderRole !== "student" ? msg.senderRole : null}
+                timestamp={new Date(msg.createdAt).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}
+              >
+                <div className="flex flex-col gap-1 w-full mt-1">
                   {msg.replyTo && (
-                    <div className="mb-2 px-2 py-1 rounded-md border border-border/40 bg-background/40 text-[11px] text-muted-foreground">
-                      Replying to: {msg.replyTo.content}
+                    <div className="mb-1 flex items-center gap-2 text-xs text-muted-foreground">
+                      <div className="w-6 h-[1px] bg-border/60" />
+                      <span className="truncate max-w-[200px]">Replying to: {msg.replyTo.content}</span>
                     </div>
                   )}
                   {msg.poll ? (
@@ -328,119 +485,71 @@ export default function GroupChatView({ group, currentUserId }: GroupChatViewPro
                   ) : msg.messageType === "COMMAND" && msg.commandUrl ? (
                     <a
                       href={msg.commandUrl}
-                      className="block rounded-md border border-blue-500/30 bg-blue-500/10 px-3 py-2 text-[13px] text-blue-600 dark:text-blue-300 hover:bg-blue-500/15"
+                      className="inline-block rounded-md border border-blue-500/30 bg-blue-500/10 px-3 py-2 text-[13px] text-blue-600 dark:text-blue-300 hover:bg-blue-500/15"
                     >
                       {msg.commandLabel || msg.content}
                     </a>
                   ) : (
-                    <MarkdownMessage content={msg.content} />
+                    <MarkdownMessage 
+                      content={msg.content} 
+                      emojiMap={emojiMap}
+                      stickerUrls={serverStickers.map(s => s.imageUrl)}
+                    />
                   )}
 
-                  {/* REACTION PICKER OVERLAY */}
-                  <div className={`absolute top-[-16px] ${isMe ? "right-0" : "left-0"} flex items-center p-1 rounded-full bg-card shadow-lg border border-border/30 opacity-0 group-hover:opacity-100 transition-all duration-200 z-10 gap-0.5 scale-90 group-hover:scale-100`}>
-                    {AVAILABLE_EMOJIS.map(emoji => (
-                      <button
-                        key={emoji}
-                        onClick={() => handleReaction(msg.id, emoji)}
-                        className="w-7 h-7 flex items-center justify-center text-[14px] hover:bg-muted rounded-full transition-colors active:scale-90"
-                      >
-                        {emoji}
-                      </button>
-                    ))}
-                    <div className="w-[1px] h-4 bg-border mx-1" />
-                    <button
-                      onClick={() => setReactionMessageId(reactionMessageId === msg.id ? null : msg.id)}
-                      className="w-7 h-7 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted rounded-full transition-colors"
-                    >
-                      <SmilePlus className="size-4" />
-                    </button>
-                    {(msg.senderId === currentUserId || group.members?.find((m: any) => m.userId === currentUserId)?.isOwner) && (
-                      <button
-                        onClick={() => handleDeleteMessage(msg.id)}
-                        className="w-7 h-7 flex items-center justify-center text-red-500 hover:bg-red-50 rounded-full transition-colors"
-                      >
-                        <Trash2 className="size-4" />
-                      </button>
-                    )}
-                  </div>
-
-                  {reactionMessageId === msg.id && (
-                    <div ref={reactionEmojiRef} className={`absolute z-50 ${isMe ? "right-0" : "left-0"} top-8 shadow-2xl`}>
-                      <EmojiPicker
-                        onEmojiClick={(emojiData) => handleReaction(msg.id, emojiData.emoji)}
-                        width={280}
-                        height={350}
-                        theme={theme === 'dark' ? Theme.DARK : Theme.LIGHT}
-                      />
+                  {/* REACTIONS DISPLAY */}
+                  {Object.keys(reactionsByEmoji).length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-1.5">
+                      <TooltipProvider delayDuration={100}>
+                        {Object.entries(reactionsByEmoji).map(([emoji, reacts]: [string, any]) => {
+                          const hasReacted = reacts.some((r: any) => r.userId === currentUserId);
+                          return (
+                            <Tooltip key={emoji}>
+                              <TooltipTrigger asChild>
+                                <button
+                                  onClick={() => handleReaction(msg.id, emoji)}
+                                  className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs border transition-all duration-200 ${
+                                    hasReacted
+                                      ? "bg-blue-500/10 border-blue-500/30 text-blue-500"
+                                      : "bg-background border-border text-muted-foreground hover:bg-muted"
+                                  }`}
+                                >
+                                  <EmojiReaction emoji={emoji} emojiMap={emojiMap} />
+                                  <span className="font-semibold">{reacts.length}</span>
+                                </button>
+                              </TooltipTrigger>
+                              <TooltipContent side="top" className="p-2 min-w-[120px]">
+                                <div className="space-y-1">
+                                  <p className="text-[10px] font-medium text-muted-foreground tracking-wider mb-1 flex items-center gap-1">
+                                    Reacted with <EmojiReaction emoji={emoji} emojiMap={emojiMap} />
+                                  </p>
+                                  {reacts.map((r: any) => {
+                                    const member = group.members?.find((m: any) => m.userId === r.userId);
+                                    return (
+                                      <div key={r.id} className="text-xs font-medium py-0.5">
+                                        {member ? member.displayName : "Unknown Member"}
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </TooltipContent>
+                            </Tooltip>
+                          );
+                        })}
+                      </TooltipProvider>
                     </div>
                   )}
                 </div>
-
-                {/* REACTIONS DISPLAY WITH MEMBER POPOVER */}
-                {Object.keys(reactionsByEmoji).length > 0 && (
-                  <div className={`flex flex-wrap gap-1 mt-1.5 ${isMe ? "justify-end" : "justify-start"}`}>
-                    <TooltipProvider delayDuration={100}>
-                      {Object.entries(reactionsByEmoji).map(([emoji, reacts]: [string, any]) => {
-                        const hasReacted = reacts.some((r: any) => r.userId === currentUserId);
-                        return (
-                          <Tooltip key={emoji}>
-                            <TooltipTrigger asChild>
-                              <button
-                                onClick={() => handleReaction(msg.id, emoji)}
-                                className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] border transition-all duration-200 ${hasReacted
-                                  ? "bg-blue-500/10 border-blue-500/30 text-blue-500"
-                                  : "bg-background border-border text-muted-foreground hover:bg-muted"
-                                  }`}
-                              >
-                                <span>{emoji}</span>
-                                <span className="font-semibold">{reacts.length}</span>
-                              </button>
-                            </TooltipTrigger>
-                            <TooltipContent side="top" className="p-2 min-w-[120px] border-none shadow-2xl bg-background/95 backdrop-blur-md">
-                              <div className="space-y-1">
-                                <p className="text-[10px] font-medium text-muted-foreground  tracking-widest mb-1 border-b border-border/30 pb-1">
-                                  Reacted with {emoji}
-                                </p>
-                                {reacts.map((r: any) => {
-                                  const member = group.members?.find((m: any) => m.userId === r.userId);
-                                  return (
-                                    <div key={r.id} className="text-[11px] font-medium py-0.5">
-                                      {member ? member.displayName : "Unknown Member"}
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            </TooltipContent>
-                          </Tooltip>
-                        );
-                      })}
-                    </TooltipProvider>
-                  </div>
-                )}
-
-                <div className="mt-1.5 text-[10px] text-muted-foreground/60 font-medium px-1 uppercase tracking-tight">
-                  {new Date(msg.createdAt).toLocaleTimeString("en-US", { hour: '2-digit', minute: '2-digit' })}
-                </div>
-              </div>
+              </ChatMessageHeader>
             </div>
-            </div>
+
           );
         })}
         <div ref={messagesEndRef} />
       </div>
 
       {/* INPUT AREA */}
-      <div className="p-4 bg-background border-t border-border shrink-0 relative">
-        {showInputEmoji && (
-          <div ref={inputEmojiRef} className="absolute bottom-full mb-2 right-4 z-50">
-            <EmojiPicker
-              onEmojiClick={(emojiData) => setEmojiToken(emojiData.emoji)}
-              width={300}
-              height={400}
-              theme={theme === 'dark' ? Theme.DARK : Theme.LIGHT}
-            />
-          </div>
-        )}
+      <div className="p-2 bg-background border-t border-border shrink-0 relative">
         {replyToMessage && (
           <div className="mb-2 px-3 py-2 rounded-md border border-border bg-muted/40 text-[12px] text-muted-foreground flex items-center justify-between gap-2 max-w-4xl mx-auto">
             <span className="truncate">Replying to: {replyToMessage.content}</span>
@@ -453,23 +562,13 @@ export default function GroupChatView({ group, currentUserId }: GroupChatViewPro
             </button>
           </div>
         )}
-        <div className="flex gap-2 relative max-w-4xl mx-auto mb-2 justify-end">
-          <button
-            type="button"
-            onClick={() => setShowInputEmoji(!showInputEmoji)}
-            disabled={isMuted}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-border bg-background text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <SmilePlus className="size-5" />
-          </button>
-        </div>
         <div className="max-w-4xl mx-auto">
           <RichMessageInput
             placeholder={isMuted ? "You are muted in this group." : "Message this group..."}
             onSubmit={handleSendMessage}
             disabled={isSending || isMuted}
-            appendTextToken={emojiToken}
-            onTokenConsumed={() => setEmojiToken(null)}
+            serverEmojis={serverEmojis}
+            serverStickers={serverStickers}
             onSlashCommands={[
               {
                 id: "poll",
@@ -576,7 +675,7 @@ export default function GroupChatView({ group, currentUserId }: GroupChatViewPro
             <button
               onClick={handleSendPoll}
               disabled={isSendingPoll}
-              className="px-4 py-2 rounded-md bg-foreground text-background text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50"
+              className="px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50"
             >
               {isSendingPoll ? "Sending..." : "Send poll"}
             </button>

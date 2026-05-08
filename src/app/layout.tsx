@@ -7,24 +7,93 @@ import "react-toastify/dist/ReactToastify.css";
 import { ThemeProvider } from "@/components/theme-provider";
 
 import { GlobalNotificationProvider } from "@/components/GlobalNotification";
+import { getEquippedColors } from "@/actions/color-shop.actions";
+import { auth } from "@clerk/nextjs/server";
+import { StatusBarHandler } from "@/components/StatusBarHandler";
 
 const inter = Inter({ subsets: ["latin"] });
 
-export const metadata: Metadata = {
-  title: "CampusOS",
-  description: "School Management System",
+export const viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+  viewportFit: "cover",
 };
 
-export default function RootLayout({
+export const metadata: Metadata = {
+  title: "gecX",
+  description: "School Management System",
+  manifest: "/manifest.json",
+  themeColor: "#313338",
+  icons: [
+    { rel: "icon", url: "/logo.png" },
+    { rel: "apple-touch-icon", url: "/logo.png", sizes: "180x180" },
+  ],
+  appleWebApp: {
+    capable: true,
+    title: "gecX",
+    statusBarStyle: "black-translucent",
+  },
+  other: {
+    "apple-mobile-web-app-status-bar-style": "black-translucent",
+    "mobile-web-app-capable": "yes",
+  },
+};
+
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const { userId } = auth();
+  let htmlThemeStyle: React.CSSProperties = {};   // CSS vars — go on <html>
+  let bodyBgImage: string | undefined;             // gradient backgroundImage — goes on <body>
+  let themeMode: "light" | "dark" | undefined = undefined;
+
+  if (userId) {
+    try {
+      const colors = await getEquippedColors(userId);
+      if (colors?.themeVars) {
+        const parsed = JSON.parse(colors.themeVars) as Record<string, string>;
+
+        // Separate backgroundImage (gradient) from CSS custom properties
+        const { backgroundImage, ...cssVars } = parsed;
+        bodyBgImage = backgroundImage as string | undefined;
+        htmlThemeStyle = cssVars as React.CSSProperties;
+
+        // Determine light vs dark from background lightness
+        const bg = cssVars["--background"];
+        if (bg) {
+          const match = bg.match(/(\d+(?:\.\d+)?)%/g);
+          if (match && match.length >= 2) {
+            const lightness = parseFloat(match[1]); // second % = lightness in HSL
+            themeMode = lightness > 50 ? "light" : "dark";
+          }
+        }
+      }
+    } catch (e) {
+      console.error("Failed to load user theme", e);
+    }
+  }
+
   return (
     <ClerkProvider>
-      <html lang="en" suppressHydrationWarning>
-        <body className={inter.className}>
-          <ThemeProvider attribute="class" defaultTheme="dark" disableTransitionOnChange>
+      {/* Theme CSS vars live on <html> so they have higher specificity than html.dark class rules */}
+      <html
+        lang="en"
+        suppressHydrationWarning
+        style={{
+          ...htmlThemeStyle,
+          colorScheme: themeMode ?? "dark",
+        }}
+      >
+        <body
+          className={inter.className}
+          style={bodyBgImage ? { backgroundImage: bodyBgImage } : undefined}
+        >
+          <ThemeProvider attribute="class" defaultTheme="dark" forcedTheme={themeMode} disableTransitionOnChange>
+            <StatusBarHandler />
             <GlobalNotificationProvider>
               {children}
             </GlobalNotificationProvider>

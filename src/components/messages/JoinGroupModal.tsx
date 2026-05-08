@@ -71,7 +71,7 @@ export default function JoinGroupModal() {
           <button
             type="submit"
             disabled={loading || !code.trim()}
-            className="mt-2 flex items-center justify-center gap-2 bg-foreground text-background py-2.5 rounded-lg text-sm font-medium transition-opacity disabled:opacity-50"
+            className="mt-2 flex items-center justify-center gap-2 bg-primary text-primary-foreground py-2.5 rounded-lg text-sm font-medium transition-opacity disabled:opacity-50"
           >
             {loading && <Loader2 className="w-4 h-4 animate-spin" />}
             {loading ? "Joining..." : "Join Group"}

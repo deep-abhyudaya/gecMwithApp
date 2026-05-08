@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { BarChart3, Ticket, HelpCircle } from "lucide-react";
+import { BarChart3, Ticket, HelpCircle, Smile, Shield, UserPlus } from "lucide-react";
 
 export type SlashCommand = {
   id: string;
@@ -58,5 +58,8 @@ export const defaultIcons = {
   poll: <BarChart3 className="size-4" />,
   ticket: <Ticket className="size-4" />,
   help: <HelpCircle className="size-4" />,
+  reactionrole: <Smile className="size-4" />,
+  role: <Shield className="size-4" />,
+  assign: <UserPlus className="size-4" />,
 };
 

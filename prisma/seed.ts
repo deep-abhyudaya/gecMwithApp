@@ -201,6 +201,32 @@ async function main() {
     });
   }
 
+  // KARMA SETTINGS - Create default settings
+  const existingSettings = await prisma.karmaSettings.findFirst();
+  if (!existingSettings) {
+    await prisma.karmaSettings.create({
+      data: {
+        likeReceived: 2,
+        commentCreated: 1,
+        commentReceived: 1,
+        postCreated: 2,
+        repostReceived: 10,
+        perfectAttendanceWeek: 5,
+        attendancePerDay: 1,
+        resultAbove95: 25,
+        resultAbove90: 20,
+        resultAbove85: 15,
+        resultAbove80: 12,
+        resultAbove70: 8,
+        resultAbove60: 5,
+        messageSent: 2,
+        messageReactionReceived: 1,
+        serverBumpReceived: 5,
+      },
+    });
+    console.log("Default karma settings created.");
+  }
+
   console.log("Seeding completed successfully.");
 }
 

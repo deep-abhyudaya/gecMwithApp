@@ -141,7 +141,7 @@ const AssignmentForm = ({
       <button
         type="submit"
         disabled={loading}
-        className="bg-foreground hover:bg-foreground/90 transition-colors text-background font-medium py-2.5 rounded-md text-sm disabled:opacity-60"
+        className="bg-primary hover:bg-primary/90 transition-colors text-primary-foreground font-medium py-2.5 rounded-md text-sm disabled:opacity-60"
       >
         {loading ? "Saving..." : type === "create" ? "Create Assignment" : "Update Assignment"}
       </button>

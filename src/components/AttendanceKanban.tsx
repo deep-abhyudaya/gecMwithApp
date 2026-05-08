@@ -209,6 +209,9 @@ export default function AttendanceKanban({
         // Default all to present
         setPresent(students);
         setAbsent([]);
+        // Auto-save initial attendance to DB so students don't need to be dragged first
+        const entries = students.map((s) => ({ studentId: s.id, present: true }));
+        await bulkMarkAttendance(lessonId, selectedDate, entries);
       }
     } catch (e) {
       toast.error("Failed to load students.");
@@ -236,6 +239,9 @@ export default function AttendanceKanban({
         setPresent(p); setAbsent(a);
       } else {
         setPresent(students); setAbsent([]);
+        // Auto-save initial attendance to DB when no records exist for this date
+        const entries = students.map((s) => ({ studentId: s.id, present: true }));
+        await bulkMarkAttendance(selectedLesson.id, date, entries);
       }
     } catch { toast.error("Failed to load."); }
     finally { setLoading(false); }

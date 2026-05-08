@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, memo } from "react";
 import { useRouter } from "next/navigation";
 import { voteOnPoll } from "@/actions/message.actions";
 
@@ -11,7 +11,7 @@ type Poll = {
   votes: { id: number; optionId: number; userId: string }[];
 };
 
-export default function PollMessage({
+function PollMessageComponent({
   poll,
   currentUserId,
   isOwnMessage = false,
@@ -114,4 +114,6 @@ export default function PollMessage({
     </div>
   );
 }
+
+export default memo(PollMessageComponent);
 

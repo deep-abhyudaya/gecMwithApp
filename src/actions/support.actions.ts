@@ -110,7 +110,43 @@ export async function getTicketMessages(ticketId: number) {
   });
 
   if (!ticket) throw new Error("Ticket not found");
-  return ticket;
+
+  // Get unique sender IDs
+  const senderIds = [...new Set(ticket.messages.map((m) => m.senderId).filter(Boolean))];
+
+  // Batch fetch karma, equipped colors, and avatars
+  const [karmaProfiles, equippedColors, communityProfiles] = await Promise.all([
+    prisma.userCommunityProfile.findMany({
+      where: { userId: { in: senderIds } },
+      select: { userId: true, karmaPoints: true },
+    }),
+    prisma.userEquippedColors.findMany({
+      where: { userId: { in: senderIds } },
+      include: { usernameColorItem: true, nameplateItem: true },
+    }),
+    prisma.userCommunityProfile.findMany({
+      where: { userId: { in: senderIds } },
+      select: { userId: true, avatar: true, customAvatar: true },
+    }),
+  ]);
+
+  const karmaMap = new Map(karmaProfiles.map((p) => [p.userId, p.karmaPoints]));
+  const colorMap = new Map(equippedColors.map((e) => [e.userId, e.usernameColorItem?.colorValue || null]));
+  const nameplateMap = new Map(equippedColors.map((e) => [e.userId, e.nameplateItem?.colorValue || null]));
+  const avatarMap = new Map(communityProfiles.map((p: any) => [p.userId, p.avatar || null]));
+  const customAvatarMap = new Map(communityProfiles.map((p: any) => [p.userId, p.customAvatar || null]));
+
+  // Enrich messages
+  const enrichedMessages = ticket.messages.map((msg) => ({
+    ...msg,
+    senderKarma: karmaMap.get(msg.senderId) ?? 0,
+    senderColor: colorMap.get(msg.senderId) || null,
+    senderNameplate: nameplateMap.get(msg.senderId) || null,
+    senderAvatar: avatarMap.get(msg.senderId) || null,
+    senderCustomAvatar: customAvatarMap.get(msg.senderId) || null,
+  }));
+
+  return { ...ticket, messages: enrichedMessages };
 }
 
 export async function sendMessage(ticketId: number, content: string, replyToId?: number) {

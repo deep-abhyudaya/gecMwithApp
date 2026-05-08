@@ -25,8 +25,13 @@ import {
   Library,
   LifeBuoy,
   ChevronRight,
+  ShoppingBag,
   type LucideIcon,
   Inbox,
+  Globe,
+  Search,
+  Server,
+  Trophy,
 } from "lucide-react";
 import { useSidebarCtx } from "./sidebar-context";
 import {
@@ -38,6 +43,8 @@ import { cn } from "@/lib/utils";
 import { useEffect, useRef, useState } from "react";
 import { UpdateDetailsDialog, NOTIFICATION_DISMISSED_EVENT } from "@/components/notifications/UpdateDetailsDialog";
 import { useClerk } from "@clerk/nextjs";
+
+import { useUnreadCountsSSE } from "@/hooks/useUnreadCountsSSE";
 
 // Use primitives directly for full icon control + animations
 import {
@@ -84,6 +91,7 @@ type MenuGroup = {
 type UnreadCounts = {
   messages: number;
   tickets: number;
+  requests: number;
   notifications: number;
   teachers: number;
   students: number;
@@ -109,6 +117,7 @@ const getMenuGroups = (role: string): MenuGroup[] => [
     items: [
       { icon: Home, label: "Dashboard", href: `/${role}`, visible: ["admin", "teacher", "student", "parent"] },
       { icon: User, label: "Profile", href: "/profile", visible: ["admin", "teacher", "student", "parent"] },
+      { icon: ShoppingBag, label: "Marketplace", href: "/shop", visible: ["admin", "teacher", "student", "parent"] },
     ],
   },
   {
@@ -157,7 +166,20 @@ const getMenuGroups = (role: string): MenuGroup[] => [
     items: [
       { icon: Calendar, label: "Events", href: "/list/events", visible: ["admin", "teacher", "student", "parent"] },
       { icon: MessageSquare, label: "Messages", href: "/messages", visible: ["admin", "teacher", "student", "parent"] },
+      { icon: Inbox, label: "Requests", href: "/requests", visible: ["admin", "teacher", "student", "parent"] },
+      { icon: Server, label: "Servers", href: "/servers", visible: ["admin", "teacher", "student", "parent"] },
       { icon: Megaphone, label: "Announcements", href: "/list/announcements", visible: ["admin", "teacher", "student", "parent"] },
+    ],
+  },
+  {
+    title: "Community",
+    groupKey: "community",
+    icon: Globe,
+    items: [
+      { icon: Globe, label: "Feed", href: "/community", visible: ["admin", "teacher", "student", "parent"] },
+      { icon: User, label: "My Profile", href: "/community/profile", visible: ["admin", "teacher", "student", "parent"] },
+      { icon: Search, label: "Search Users", href: "/community/search", visible: ["admin", "teacher", "student", "parent"] },
+      { icon: Trophy, label: "Leaderboard", href: "/leaderboard", visible: ["admin", "teacher", "student", "parent"] },
     ],
   },
   {
@@ -194,9 +216,15 @@ function NavContent({
 }) {
   const { signOut } = useClerk();
 
-  // Live counts — seed from server-side initialCounts, then keep fresh via polling
+  // Live counts — seed from server-side initialCounts, then keep fresh via SSE
+  const { counts: liveCounts, isConnected } = useUnreadCountsSSE();
   const [counts, setCounts] = useState<UnreadCounts>(initialCounts);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    // Update counts when SSE data arrives
+    setCounts(liveCounts);
+  }, [liveCounts]);
 
   useEffect(() => {
     let cancelled = false;
@@ -212,9 +240,16 @@ function NavContent({
       }
     };
 
-    // Fetch immediately on mount, then every 20 seconds
-    fetchCounts();
-    intervalRef.current = setInterval(fetchCounts, 20_000);
+    // Fallback polling only if SSE is not connected (every 5 minutes)
+    if (!isConnected) {
+      fetchCounts();
+      intervalRef.current = setInterval(fetchCounts, 300_000);
+    } else {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+    }
 
     // Also re-fetch immediately whenever a notification dialog is dismissed
     window.addEventListener(NOTIFICATION_DISMISSED_EVENT, fetchCounts);
@@ -224,7 +259,7 @@ function NavContent({
       if (intervalRef.current) clearInterval(intervalRef.current);
       window.removeEventListener(NOTIFICATION_DISMISSED_EVENT, fetchCounts);
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isConnected]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [dialogTypes, setDialogTypes] = useState<string[]>([]);
@@ -301,11 +336,9 @@ function NavContent({
       <div className="px-5 pt-7 pb-5 shrink-0">
         <Link href="/" className="flex flex-col gap-0.5" onClick={onNavClick}>
           <span className="text-foreground font-semibold text-[15px] tracking-tight leading-tight" style={{ letterSpacing: "-0.01em" }}>
-            CampusOS
+            gecX
           </span>
-          <span className="text-[11px] text-muted-foreground">
-            School management system
-          </span>
+
         </Link>
       </div>
 
@@ -349,7 +382,15 @@ function NavContent({
                           if (isLogout) {
                             signOut();
                           }
-                          if (onNavClick) onNavClick();
+                          if (onNavClick) {
+                            // Delay sidebar closing for critical navigation items to reduce perceived lag
+                            const criticalRoutes = ["/messages", "/servers", "/requests", "/community"];
+                            if (criticalRoutes.includes(item.href)) {
+                              setTimeout(() => onNavClick(), 300);
+                            } else {
+                              onNavClick();
+                            }
+                          }
                         };
 
                         return (
@@ -367,14 +408,15 @@ function NavContent({
                                 <FileLabel className="text-[13px] text-muted-foreground leading-none whitespace-nowrap font-medium">
                                   {item.label}
                                 </FileLabel>
-                                 {getBadgeInfo(item.label).count > 0 && (
+                                {getBadgeInfo(item.label).count > 0 && (
                                   <span
                                     onClick={(e) => {
                                       e.preventDefault();
                                       e.stopPropagation();
                                       // Messages and ticket badges navigate directly to their pages
                                       if (item.label === "Messages") {
-                                        if (onNavClick) onNavClick();
+                                        // Delay sidebar closing for Messages to reduce perceived lag
+                                        if (onNavClick) setTimeout(() => onNavClick(), 300);
                                         window.location.href = item.href;
                                         return;
                                       }
@@ -454,7 +496,7 @@ export function SidebarInner({
     <>
       <aside
         className={cn(
-          "hidden md:flex flex-col h-full bg-[#f4f4f5] dark:bg-[#111113] border-r border-border",
+          "hidden md:flex flex-col h-full bg-sidebar border-r border-border",
           collapsed ? "opacity-0 pointer-events-none" : "opacity-100"
         )}
       >
@@ -464,7 +506,7 @@ export function SidebarInner({
       <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
         <SheetContent
           side="left"
-          className="p-0 w-72 border-r border-border bg-[#f4f4f5] dark:bg-[#111113] flex flex-col"
+          className="p-0 w-[80vw] border-r border-border bg-sidebar flex flex-col"
         >
           <SheetTitle className="sr-only">Navigation</SheetTitle>
           <NavContent role={role} initialCounts={initialCounts} onNavClick={() => setMobileOpen(false)} />

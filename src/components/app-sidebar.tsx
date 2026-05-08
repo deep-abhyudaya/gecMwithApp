@@ -15,6 +15,7 @@ export async function AppSidebar() {
   let counts = {
     messages: 0,
     tickets: 0,
+    requests: 0,
     notifications: 0,
     teachers: 0,
     students: 0,

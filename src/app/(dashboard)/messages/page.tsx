@@ -1,6 +1,7 @@
 import { auth } from "@clerk/nextjs/server";
 import { getConversations, getConversationMessages } from "@/actions/message.actions";
 import { getMyGroups, getGroupMessages } from "@/actions/group.actions";
+import { getMyCommunityProfile } from "@/actions/community-profile.actions";
 import DirectMessageClient from "@/components/messages/DirectMessageClient";
 import { cookies } from "next/headers";
 
@@ -21,8 +22,11 @@ const MessagesPage = async ({
     } catch (e) {}
   }
 
-  const conversations = await getConversations();
-  const groups = await getMyGroups();
+  const [conversations, groups, currentUserProfile] = await Promise.all([
+    getConversations(),
+    getMyGroups(),
+    getMyCommunityProfile(),
+  ]);
   
   const selectedId = searchParams.convId ? parseInt(searchParams.convId) : null;
   const isGroup = searchParams.type === "group";
@@ -59,6 +63,7 @@ const MessagesPage = async ({
         groups={groups as any}
         selectedData={selectedData}
         currentUserId={userId}
+        currentUserProfile={currentUserProfile}
         defaultLayout={defaultMessagesLayout}
       />
     </div>

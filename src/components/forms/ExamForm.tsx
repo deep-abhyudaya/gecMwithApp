@@ -125,7 +125,7 @@ const ExamForm = ({
       {error && (
         <span className="text-red-500">Something went wrong!</span>
       )}
-      <button disabled={loading} className="bg-foreground text-background p-2 rounded-md disabled:opacity-60">
+      <button disabled={loading} className="bg-primary text-primary-foreground p-2 rounded-md disabled:opacity-60">
         {loading ? "Saving..." : type === "create" ? "Create" : "Update"}
       </button>
     </form>

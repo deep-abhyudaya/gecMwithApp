@@ -133,6 +133,26 @@ export default function KanbanBoard({
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [draggingItem, setDraggingItem] = useState<KanbanItem | null>(null);
 
+  // Update items when initialItems changes (e.g., new items created)
+  useEffect(() => {
+    setItems((prevItems) => {
+      const prevIds = new Set(prevItems.map((i) => String(i.id)));
+      const newItems = initialItems.filter((i) => !prevIds.has(String(i.id)));
+      
+      if (newItems.length === 0 && prevItems.length === initialItems.length) {
+        // No new items and same count, keep current state
+        return prevItems;
+      }
+      
+      // Merge: keep existing items with their current status, add new items with default status
+      const merged = initialItems.map((item) => {
+        const existing = prevItems.find((p) => String(p.id) === String(item.id));
+        return existing || { ...item, status: item.status || columns[0].id };
+      });
+      return merged;
+    });
+  }, [initialItems, columns]);
+
   // Initialize status from storage or default to first column
   useEffect(() => {
     try {

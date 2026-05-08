@@ -64,7 +64,7 @@ export default function ShareProfileButton({
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <button className="flex items-center gap-2 bg-foreground text-background px-4 py-2 rounded-lg text-sm font-semibold hover:bg-foreground/90 transition-all shadow-sm">
+        <button className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2 rounded-lg text-sm font-semibold hover:bg-foreground/90 transition-all shadow-sm">
           <Share2 size={16} />
           Share Profile
         </button>
@@ -86,7 +86,7 @@ export default function ShareProfileButton({
                 onClick={() => setDuration(mins)}
                 className={`flex-1 py-2 rounded-lg text-xs font-semibold border transition-all ${
                   duration === mins
-                    ? "bg-foreground text-background border-foreground"
+                    ? "bg-primary text-primary-foreground border-foreground"
                     : "bg-background text-muted-foreground border-border hover:border-foreground/30"
                 }`}
               >
@@ -98,7 +98,7 @@ export default function ShareProfileButton({
           <button
             onClick={handleGenerate}
             disabled={loading}
-            className="w-full flex justify-center items-center gap-2 bg-foreground text-background py-2.5 rounded-lg text-sm font-bold hover:bg-foreground/90 transition-colors disabled:opacity-50"
+            className="w-full flex justify-center items-center gap-2 bg-primary text-primary-foreground py-2.5 rounded-lg text-sm font-bold hover:bg-foreground/90 transition-colors disabled:opacity-50"
           >
             {loading ? <Loader2 size={18} className="animate-spin" /> : "Generate Link"}
           </button>

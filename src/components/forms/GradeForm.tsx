@@ -83,7 +83,7 @@ const GradeForm = ({
       )}
       <button
         disabled={loading}
-        className="bg-foreground text-background p-2 rounded-md disabled:opacity-60"
+        className="bg-primary text-primary-foreground p-2 rounded-md disabled:opacity-60"
       >
         {loading ? "Saving..." : type === "create" ? "Create" : "Update"}
       </button>

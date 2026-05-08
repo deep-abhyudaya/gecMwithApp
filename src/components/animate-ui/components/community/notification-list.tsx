@@ -69,7 +69,7 @@ const viewAllTextVariants = {
 function NotificationList({ notifications = defaultNotifications, onViewAll }: { notifications?: NotificationItem[]; onViewAll?: () => void }) {
   return (
     <motion.div
-      className="bg-neutral-200 dark:bg-neutral-900 p-3 rounded-3xl w-full space-y-3 shadow-md"
+      className="bg-card p-3 rounded-3xl w-full space-y-3 shadow-md"
       initial="collapsed"
       whileHover="expanded"
     >
@@ -77,7 +77,7 @@ function NotificationList({ notifications = defaultNotifications, onViewAll }: {
         {notifications.map((notification, i) => (
           <motion.div
             key={notification.id}
-            className="bg-neutral-100 dark:bg-neutral-800 rounded-xl px-4 py-2 shadow-sm hover:shadow-lg transition-shadow duration-200 relative"
+            className="bg-secondary rounded-xl px-4 py-2 shadow-sm hover:shadow-lg transition-shadow duration-200 relative"
             variants={getCardVariants(i)}
             transition={transition}
             style={{
